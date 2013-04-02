@@ -5,6 +5,7 @@ import theano
 from theano import tensor as TT
 
 from .neuron import Neuron
+from .. import gworkspace
 
 class LIFNeuron(Neuron):
     def __init__(self, size, dt=0.001, tau_rc=0.02, tau_ref=0.002):
@@ -19,9 +20,9 @@ class LIFNeuron(Neuron):
         Neuron.__init__(self, size, dt)
         self.tau_rc = tau_rc
         self.tau_ref  = tau_ref
-        self.voltage = theano.shared(
+        self.voltage_var = gworkspace.add_ndarray(
             np.zeros(size).astype('float32'), name='lif.voltage')
-        self.refractory_time = theano.shared(
+        self.refractory_time_var = gworkspace.add_ndarray(
             np.zeros(size).astype('float32'), name='lif.refractory_time')
         
     #TODO: make this generic so it can be applied to any neuron model
@@ -52,9 +53,9 @@ class LIFNeuron(Neuron):
     def reset(self):
         """Resets the state of the neuron."""
         Neuron.reset(self)
-
-        self.voltage.set_value(np.zeros(self.size).astype('float32'))
-        self.refractory_time.set_value(np.zeros(self.size).astype('float32'))
+        ws = gworkspace.workspace
+        ws[self.voltage_var] = np.zeros(self.size).astype('float32')
+        ws[self.refractory_time_var] = np.zeros(self.size).astype('float32')
 
     def update(self, J):
         """Theano update rule that implementing LIF rate neuron type
@@ -67,13 +68,13 @@ class LIFNeuron(Neuron):
         """
 
         # Euler's method
-        dV = self.dt / self.tau_rc * (J - self.voltage)
+        dV = self.dt / self.tau_rc * (J - self.voltage_var)
 
         # increase the voltage, ignore values below 0
-        v = TT.maximum(self.voltage + dV, 0)  
+        v = TT.maximum(self.voltage_var + dV, 0)  
         
         # handle refractory period        
-        post_ref = 1.0 - (self.refractory_time - self.dt) / self.dt
+        post_ref = 1.0 - (self.refractory_time_var - self.dt) / self.dt
 
         # set any post_ref elements < 0 = 0, and > 1 = 1
         v *= TT.clip(post_ref, 0, 1)
@@ -92,14 +93,14 @@ class LIFNeuron(Neuron):
         # adjust refractory time (neurons that spike get a new
         # refractory time set, all others get it reduced by dt)
         new_refractory_time = TT.switch(
-            spiked, spiketime + self.tau_ref, self.refractory_time - self.dt)
+            spiked, spiketime + self.tau_ref, self.refractory_time_var - self.dt)
 
         # return an ordered dictionary of internal variables to update
         # (including setting a neuron that spikes to a voltage of 0)
         # important that it's ordered, due to theano memory optimizations
 
         return collections.OrderedDict({
-                self.voltage: (v * (1 - spiked)).astype('float32'),
-                self.refractory_time: new_refractory_time.astype('float32'),
-                self.output: spiked.astype('float32'),
+                self.voltage_var: (v * (1 - spiked)).astype('float32'),
+                self.refractory_time_var: new_refractory_time.astype('float32'),
+                self.output_var: spiked.astype('float32'),
                 })

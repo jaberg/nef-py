@@ -4,9 +4,10 @@ import collections
 import numpy as np
 import theano
 import theano.tensor as TT
+import gworkspace
 
 class Filter:
-    """Filter an arbitrary theano.shared"""
+    """Filter a theano variable representing some state at time t"""
 
     def __init__(self, dt, pstc, name=None, source=None, shape=None):
         self.dt = dt
@@ -26,7 +27,13 @@ class Filter:
             raise Exception("Either \"source\" or \"shape\" must define filter shape")
             
         ### create shared variable to store the filtered value
-        self.value = theano.shared(value, name=name)
+        if source:
+            self.value_var = source.type(name=name)
+        else:
+            self.value_var = TT.TensorType(
+                dtype=theano.config.floatX,
+                broadcastable=[False] * len(shape))
+        gworkspace.workspace[self.value_var] = value
 
     def set_source(self, source):
         self.source = source

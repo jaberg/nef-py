@@ -2,6 +2,7 @@ from numbers import Number
 
 import numpy as np
 import theano
+import gworkspace
 
 class Origin(object):
     """An origin is an object that provides a signal. Origins project
@@ -11,7 +12,7 @@ class Origin(object):
     to any accessing objects.
     """
     
-    def __init__(self, func, initial_value=None):
+    def __init__(self, func, initial_value=None, name='origin'):
         """
         :param function func: the function carried out by this origin
         :param array initial_value: the initial_value of the decoded_output
@@ -29,8 +30,8 @@ class Origin(object):
         initial_value = np.float32(initial_value)
 
         # theano internal state defining output value
-        self.decoded_output = theano.shared(initial_value,
-                                            name='origin.decoded_output') 
+        self.decoded_output_var = gworkspace.add_ndarray(
+            initial_value, name='%s.decoded_output' % name) 
 
         # find number of parameters of the projected value
         self.dimensions = len(initial_value)

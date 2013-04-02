@@ -25,6 +25,8 @@ class Accumulator:
 
         """
         self.ensemble = ensemble
+        workspace = ensemble.workspace
+        name = ensemble.name
 
         # time constant for filter
         self.decay = np.exp(-self.ensemble.neurons.dt / pstc)
@@ -35,22 +37,25 @@ class Accumulator:
         # decoded_input should be dimensions * array_size
         # because we account for the transform matrix here,
         # so different array networks get different input
-        self.decoded_input = theano.shared(np.zeros(
-                (self.ensemble.array_size, self.ensemble.dimensions)
-                ).astype('float32'), name='accumulator.decoded_input')
+        self.decoded_input_var = TT.matrix(
+            name=name + '.decoded_input')
+        workspace[self.decoded_input_var] = np.zeros(
+                (self.ensemble.array_size, self.ensemble.dimensions))
         # encoded_input specifies input into each neuron,
         # so it is array_size * neurons_num
-        self.encoded_input = theano.shared(np.zeros(
-                (self.ensemble.array_size, self.ensemble.neurons_num)
-                ).astype('float32'), name='accumulator.encoded_input')
+        self.encoded_input_var = TT.matrix(
+            name=name + '.encoded_input')
+        workspace[self.encoded_input_var] = np.zeros(
+                (self.ensemble.array_size, self.ensemble.neurons_num))
         # learn_input specifies input into each neuron,
         # but current from different terminations can't be amalgamated
         #TODO: make learn input a dictionary that stores a
-        # shared variable of the input current
+        # variable of the input current
         # each different termination, for use by learned_termination
-        self.learn_input = theano.shared(np.zeros(
-                (self.ensemble.neurons.size)
-                ).astype('float32'), name='accumulator.learn_input')
+        self.learn_input_var = TT.matrix(
+            name=name + '.learn_input')
+        workspace[self.learn_input_var] = np.zeros(
+                self.ensemble.neurons.size)
 
     def add_decoded_input(self, decoded_input):
         """Adds a decoded input to this accumulator.
@@ -76,7 +81,7 @@ class Accumulator:
             self.decoded_total = self.decoded_total + decoded_input 
 
         # the theano object representing the filtering operation
-        self.new_decoded_input = self.decay * self.decoded_input + (
+        self.new_decoded_input = self.decay * self.decoded_input_var + (
             1 - self.decay) * self.decoded_total 
 
     def add_encoded_input(self, encoded_input):
@@ -103,7 +108,7 @@ class Accumulator:
             self.encoded_total = self.encoded_total + encoded_input 
 
         # the theano object representing the filtering operation
-        self.new_encoded_input = self.decay * self.encoded_input + (
+        self.new_encoded_input = self.decay * self.encoded_input_var + (
             1 - self.decay) * self.encoded_total
 
     def add_learn_input(self, learn_input):
@@ -132,7 +137,7 @@ class Accumulator:
             self.learn_total = self.learn_total + learn_input 
 
         # the theano object representing the filtering operation
-        self.new_learn_input = self.decay * self.learn_input + (
+        self.new_learn_input = self.decay * self.learn_input_var + (
             1 - self.decay) * self.learn_total 
 
 
@@ -145,7 +150,8 @@ class Ensemble:
                  max_rate=(200, 300), intercept=(-1.0, 1.0), radius=1.0,
                  encoders=None, seed=None, neuron_type='lif', dt=0.001,
                  array_size=1, eval_points=None, decoder_noise=0.1,
-                 noise_type='uniform', noise=None):
+                 noise_type='uniform', noise=None, workspace=None,
+                 name=None):
         """Construct an ensemble composed of the specific neuron model,
         with the specified neural parameters.
 
@@ -199,6 +205,8 @@ class Ensemble:
         self.decoder_noise=decoder_noise
         self.dt = dt
         self.noise_type = noise_type
+        self.workspace = workspace
+        self.name = name
 
         # make sure that eval_points is the right shape
         if eval_points is not None:
@@ -233,11 +241,10 @@ class Ensemble:
         self.bias = self.bias.astype('float32')
                 
         # compute encoders
-        self.encoders = self.make_encoders(encoders=encoders)
-        # combine encoders and gain for simplification
-        self.encoders = (self.encoders.T * alpha.T).T
-        self.shared_encoders = theano.shared(self.encoders, 
-            name='ensemble.shared_encoders')
+        self.encoders_var = TT.tensor3(name=name + '.encoders')
+        encoders = self.make_encoders(encoders=encoders)
+        # -- combine encoders and gain for simplification
+        workspace[self.encoders_var] = (encoders.T * alpha.T).T
         
         # make default origin
         self.origin = {}
@@ -249,6 +256,10 @@ class Ensemble:
         
         # list of learned terminations on ensemble
         self.learned_terminations = []
+
+    @property # TODO: support setting this property
+    def encoders(self):
+        return self.workspace[self.encoders_var]
 
     def add_filtered_input(self, pstc, decoded_input=None,
                            encoded_input=None, learn_input=None):
@@ -438,7 +449,7 @@ class Ensemble:
             # add to input current for each neuron as
             # represented input signal x preferred direction
             #TODO: use TT.batched_dot function here instead?
-            J = [J[i] + TT.dot(self.shared_encoders[i], X[i].T)
+            J = [J[i] + TT.dot(self.encoders_var[i], X[i].T)
                  for i in range(self.array_size)]
 
         # if noise has been specified for this neuron,
@@ -468,15 +479,15 @@ class Ensemble:
             if hasattr(a, 'new_decoded_input'):
                 # if there's a decoded input in this accumulator,
                 # add accumulated decoded inputs to theano variable updates
-                updates[a.decoded_input] = a.new_decoded_input.astype('float32')
+                updates[a.decoded_input_var] = a.new_decoded_input.astype('float32')
             if hasattr(a, 'new_encoded_input'):
                 # if there's an encoded input in this accumulator,
                 # add accumulated encoded inputs to theano variable updates
-                updates[a.encoded_input] = a.new_encoded_input.astype('float32')
+                updates[a.encoded_input_var] = a.new_encoded_input.astype('float32')
             if hasattr(a, 'new_learn_input'):
                 # if there's a learn input in this accumulator,
                 # add accumulated learn inputs to theano variable updates
-                updates[a.learn_input] = a.new_learn_input.astype('float32')
+                updates[a.learn_input_var] = a.new_learn_input.astype('float32')
 
         for l in self.learned_terminations:
             # also update the weight matrices on learned terminations
@@ -487,6 +498,6 @@ class Ensemble:
             # in the dictionary updates, set each origin's
             # output decoded_input equal to the
             # self.neuron.output() we just calculated
-            updates.update(o.update(updates[self.neurons.output]))
+            updates.update(o.update(updates[self.neurons.output_var]))
 
         return updates

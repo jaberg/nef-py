@@ -23,6 +23,7 @@ class EnsembleOrigin(Origin):
         
         """
         self.ensemble = ensemble
+        self.func = func # -- need for compute_decoders
         func_size = self.compute_decoders(func, eval_points) # sets up self.decoders
         # decoders is array_size * neurons_num * func_dimensions, 
         # initial value should have array_size values * func_dimensions
@@ -157,8 +158,14 @@ class EnsembleOrigin(Origin):
             # compute decoders - least squares method 
             decoders[index] = np.dot(Ginv, U) / (self.ensemble.neurons.dt)
 
-        self.decoders = theano.shared(decoders.astype('float32'), 
-            name='ensemble_origin.decoders')
+        try:
+            name = '%s.decoders.%s' % (
+                self.ensemble.name, self.func.__name__)
+        except AttributeError:
+            name = '%s.decoders.%s' % (
+                self.ensemble.name, str(self.func))
+        self.decoders_var = TT.tensor3(name=name + '.decoders')
+        self.ensemble.workspace[self.decoders_var] = decoders
         return target_values.shape[0]
 
     def make_samples(self):
@@ -198,8 +205,9 @@ class EnsembleOrigin(Origin):
         # multiply the output by the attached ensemble's radius
         # to put us back in the right range
         decoded_output = TT.concatenate(
-            [TT.flatten(TT.dot(spikes[i], self.decoders[i]))
+            [TT.flatten(TT.dot(spikes[i], self.decoders_var[i]))
              for i in range(self.ensemble.array_size)])
         decoded_output = TT.mul(
             decoded_output, self.ensemble.radius).astype('float32')
-        return collections.OrderedDict({self.decoded_output: decoded_output})
+        return collections.OrderedDict(
+            {self.decoded_output_var: decoded_output})

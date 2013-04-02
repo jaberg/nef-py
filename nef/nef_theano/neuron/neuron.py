@@ -2,6 +2,7 @@ import theano
 from theano import tensor as TT
 import numpy as np
 
+from .. import gworkspace
 
 def accumulate(input, neuron, time=1.0, init_time=0.05):
     """Accumulates neuron output over time.
@@ -20,32 +21,41 @@ def accumulate(input, neuron, time=1.0, init_time=0.05):
 
     """
     # create internal state variable to keep track of number of spikes
-    total = theano.shared(np.zeros(neuron.size).astype('float32'), 
-                          name='neuron.total')
+    total = gworkspace.add_ndarray(
+        np.zeros(neuron.size).astype('float32'),
+        name='neuron.total')
     
     ### make the standard neuron update function
+    ws = gworkspace.workspace
 
     # updates is dictionary of variables returned by neuron.update
     updates = neuron.update(input.astype('float32'))
 
     # update all internal state variables listed in updates
-    tick = theano.function([], [], updates=updates)
+    #tick = theano.function([], [], updates=updates)
+    tick = ws.add_method('tick', updates=updates.items())
     
     ### make a variant that also includes computing the total output
     # add another internal variable to change to updates dictionary
-    updates[total] = total + neuron.output
+    updates[total] = total + neuron.output_var
 
     # create theano function that does it all
-    accumulate_spikes = theano.function([], [], updates=updates)
+    accumulate_spikes = ws.add_method('acc', updates=updates.items())
+    #accumulate_spikes = theano.function([], [], updates=updates)
     #, mode=theano.Mode(optimizer=None, linker='py'))
 
     # call the standard one a few times to avoid startup transients
-    tick.fn(n_calls = int(init_time / neuron.dt))
+    for ii in xrange(int(init_time / neuron.dt)):
+        tick()
 
     # call the accumulator version a bunch of times
-    accumulate_spikes.fn(n_calls = int(time / neuron.dt))
+    for ii in xrange(int(time / neuron.dt)):
+        accumulate_spikes()
 
-    return total.get_value().astype('float32') / time
+    ws.del_method('tick')
+    ws.del_method('acc')
+
+    return ws[total].astype('float32') / time
 
 
 class Neuron(object):
@@ -66,12 +76,14 @@ class Neuron(object):
         self.size = size
         self.dt = dt
         # set up theano internal state variable
-        self.output = theano.shared(np.zeros(size).astype('float32'), 
-                                    name='neuron.output')
+        self.output_var = gworkspace.add_ndarray(
+            np.zeros(size).astype('float32'), 
+            name='neuron.output')
 
     def reset(self):
         """Reset the state of the neuron."""
-        self.output.set_value(np.zeros(self.size).astype('float32'))
+        gworkspace.workspace[self.output_var] *= 0
+        #self.output.set_value(np.zeros(self.size).astype('float32'))
 
     def update(self, input_current):
         """All neuron subclasses must have an update function.

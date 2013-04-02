@@ -38,6 +38,7 @@ class hPESTermination(LearnedTermination):
         # Assumption: high gain -> high theta
         self.initial_theta *= self.gains
         self.theta = theano.shared(self.initial_theta, name='hPES.theta')
+        raise NotImplementedError('need workspcae stuff')
 
         self.pre_filtered = theano.shared(
             self.pre_spikes.get_value(), name='hPES.pre_filtered')

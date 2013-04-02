@@ -14,6 +14,7 @@ from . import probe
 from . import origin
 from input import Input
 from . import subnetwork
+import gworkspace
 
 class Network(object):
     def __init__(self, name, seed=None, fixed_seed=None):
@@ -44,6 +45,8 @@ class Network(object):
         if seed is not None:
             self.random.seed(seed)
         self.workspace = Workspace()
+        gworkspace.set_workspace(self.workspace)
+
 
           
     def add(self, node):
@@ -215,7 +218,7 @@ class Network(object):
         pre = self.get_object(pre)
 
         # get decoded_output from specified origin
-        pre_output = pre_origin.decoded_output
+        pre_output = pre_origin.decoded_output_var
         dim_pre = pre_origin.dimensions 
       
         if transform is not None: 
@@ -424,7 +427,8 @@ class Network(object):
         # the theano function
         self.theano_tick = None
 
-        e = ensemble.Ensemble(*args, **kwargs) 
+        e = ensemble.Ensemble(name=name, workspace=self.workspace,
+                              *args, **kwargs) 
 
         # store created ensemble in node dictionary
         self.nodes[name] = e
@@ -488,7 +492,7 @@ class Network(object):
         self.add(p)
         return p
             
-    def make_theano_tick(self):
+    def make_theano_tick(self, fn_name='step'):
         """Generate the theano function for running the network simulation.
         
         :returns: theano function
@@ -506,8 +510,12 @@ class Network(object):
                 # add it to the list of variables to update every time step
                 updates.update(node.update())
 
-        # create graph and return optimized update function
-        return theano.function([], [], updates=updates)
+        print 'KEYS', updates.keys()
+        print 'WS', self.workspace.vals_memo.keys()
+        print 'MISSING', [k for k in updates if k not in self.workspace]
+
+        self.theano_tick = self.workspace.add_method(fn_name,
+                                                     updates=updates.items())
 
     def run(self, time):
         """Run the simulation.
