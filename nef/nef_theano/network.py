@@ -10,7 +10,7 @@ from . import ensemble
 from . import simplenode
 from . import probe
 from . import origin
-from . import input
+from input import Input
 from . import subnetwork
 
 class Network(object):
@@ -57,6 +57,7 @@ class Network(object):
         self.theano_tick = None 
         self.tick_nodes.append(node)
         self.nodes[node.name] = node
+        return node
 
     def compute_transform(self, dim_pre, dim_post, array_size, weight=1,
                           index_pre=None, index_post=None, transform=None):
@@ -437,9 +438,7 @@ class Network(object):
     
     def make_input(self, *args, **kwargs): 
         """Create an input and add it to the network."""
-        i = input.Input(*args, **kwargs)
-        self.add(i)
-        return i
+        return self.add(Input(*args, **kwargs))
         
     def make_subnetwork(self, name):
         """Create a subnetwork.  This has no functional purpose other than
