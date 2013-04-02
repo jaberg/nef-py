@@ -6,6 +6,8 @@ import theano
 from theano import tensor as TT
 import numpy as np
 
+from theano_workspace import Workspace
+
 from . import ensemble
 from . import simplenode
 from . import probe
@@ -41,6 +43,8 @@ class Network(object):
         self.random = random.Random()
         if seed is not None:
             self.random.seed(seed)
+        self.workspace = Workspace()
+
           
     def add(self, node):
         """Add an arbitrary non-theano node to the network.
