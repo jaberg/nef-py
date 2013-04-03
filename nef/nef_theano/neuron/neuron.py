@@ -33,14 +33,16 @@ def accumulate(input, neuron, time=1.0, init_time=0.05):
 
     # update all internal state variables listed in updates
     #tick = theano.function([], [], updates=updates)
-    tick = ws.add_method('tick', updates=updates.items())
+    tick = ws.add_method('tick', updates=updates.items(),
+            optimizer='fast_run')
     
     ### make a variant that also includes computing the total output
     # add another internal variable to change to updates dictionary
     updates[total] = total + neuron.output_var
 
     # create theano function that does it all
-    accumulate_spikes = ws.add_method('acc', updates=updates.items())
+    accumulate_spikes = ws.add_method('acc', updates=updates.items(),
+            optimizer='fast_run')
     #accumulate_spikes = theano.function([], [], updates=updates)
     #, mode=theano.Mode(optimizer=None, linker='py'))
 

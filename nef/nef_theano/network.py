@@ -6,7 +6,7 @@ import theano
 from theano import tensor as TT
 import numpy as np
 
-from theano_workspace import Workspace
+from theano_workspace import SimpleWorkspace, optimize
 
 from . import ensemble
 from . import simplenode
@@ -32,7 +32,7 @@ class Network(object):
         """
         self.name = name
         self.dt = 0.001
-        self.run_time = 0.0    
+        self.run_time = 0.0
         self.seed = seed
         self.fixed_seed = fixed_seed
         # all the nodes in the network, indexed by name
@@ -40,15 +40,13 @@ class Network(object):
         # the function call to run the theano portions of the model
         self.theano_tick = None
         # the list of nodes that have non-theano code
-        self.tick_nodes = [] 
+        self.tick_nodes = []
         self.random = random.Random()
         if seed is not None:
             self.random.seed(seed)
-        self.workspace = Workspace()
+        self.workspace = SimpleWorkspace()
         gworkspace.set_workspace(self.workspace)
 
-
-          
     def add(self, node):
         """Add an arbitrary non-theano node to the network.
 
@@ -56,12 +54,12 @@ class Network(object):
         added to the Theano graph if the node has an "update()" function,
         but will also be triggered explicitly at every tick
         via the node's `theano_tick()` function.
-        
+
         :param Node node: the node to add to this network
 
         """
-        # remake theano_tick function, in case the node has Theano updates 
-        self.theano_tick = None 
+        # remake theano_tick function, in case the node has Theano updates
+        self.theano_tick = None
         self.tick_nodes.append(node)
         self.nodes[node.name] = node
         return node
@@ -97,15 +95,14 @@ class Network(object):
 
             # default index_pre/post lists set up *weight* value
             # on diagonal of transform
-            
             # if dim_post * array_size != dim_pre,
             # then values wrap around when edge hit
             if index_pre is None:
-                index_pre = range(dim_pre) 
+                index_pre = range(dim_pre)
             elif isinstance(index_pre, int):
-                index_pre = [index_pre] 
+                index_pre = [index_pre]
             if index_post is None:
-                index_post = range(dim_post * array_size) 
+                index_post = range(dim_post * array_size)
             elif isinstance(index_post, int):
                 index_post = [index_post]
 
@@ -129,27 +126,27 @@ class Network(object):
             transform = array_transform
 
         return transform
-        
+
     def connect(self, pre, post, transform=None, weight=1,
                 index_pre=None, index_post=None, pstc=0.01, func=None):
         """Connect two nodes in the network.
-        
+
         Note: cannot specify (transform) AND any of
         (weight, index_pre, index_post).
 
         *pre* and *post* can be strings giving the names of the nodes,
         or they can be the nodes themselves (Inputs and Ensembles are
         supported). They can also be actual Origins or Terminations,
-        or any combination of the above. 
+        or any combination of the above.
 
         If transform is not None, it is used as the transformation matrix
         for the new termination. You can also use *weight*, *index_pre*,
         and *index_post* to define a transformation matrix instead.
         *weight* gives the value, and *index_pre* and *index_post*
         identify which dimensions to connect.
-        
+
         transform can be of several sizes:
-        
+
         - post.dimensions * pre.dimensions:
           Specify where decoded signal dimensions project
         - post.neurons * pre.dimensions:
@@ -206,8 +203,8 @@ class Network(object):
 
         """
         # reset timer in case the model has been run,
-        # as adding a new node requires rebuilding the theano function 
-        self.theano_tick = None  
+        # as adding a new node requires rebuilding the theano function
+        self.theano_tick = None
 
         # get post Node object from node dictionary
         post = self.get_object(post)
@@ -219,21 +216,21 @@ class Network(object):
 
         # get decoded_output from specified origin
         pre_output = pre_origin.decoded_output_var
-        dim_pre = pre_origin.dimensions 
-      
-        if transform is not None: 
+        dim_pre = pre_origin.dimensions
+
+        if transform is not None:
 
             # there are 3 cases
             # 1) pre = decoded, post = decoded
-            #     - in this case, transform will be 
+            #     - in this case, transform will be
             #                       (post.dimensions x pre.origin.dimensions)
             #     - decoded_input will be (post.array_size x post.dimensions)
             # 2) pre = decoded, post = encoded
-            #     - in this case, transform will be size 
+            #     - in this case, transform will be size
             #         (post.array_size x post.neurons x pre.origin.dimensions)
             #     - encoded_input will be (post.array_size x post.neurons_num)
             # 3) pre = encoded, post = encoded
-            #     - in this case, transform will be (post.array_size x 
+            #     - in this case, transform will be (post.array_size x
             #             post.neurons_num x pre.array_size x pre.neurons_num)
             #     - encoded_input will be (post.array_size x post.neurons_num)
 
@@ -242,7 +239,7 @@ class Network(object):
                     and (index_post is None))
 
             transform = np.array(transform)
-            
+
             # check to see if post side is an encoded connection, case 2 or 3
             #TODO: a better check for this
             if transform.shape[0] != post.dimensions * post.array_size \
@@ -254,27 +251,30 @@ class Network(object):
                     transform = transform.reshape(
                                       [post.array_size, post.neurons_num] +\
                                                 list(transform.shape[1:]))
-                
+
                 if len(transform.shape) == 2: # repeat array_size times
                     transform = np.tile(transform, (post.array_size, 1, 1))
-                
+
                 # check for pre side encoded connection (case 3)
                 if len(transform.shape) > 3 or \
                        transform.shape[2] == pre.array_size * pre.neurons_num:
-                    
-                    if transform.shape[2] == pre.array_size * pre.neurons_num: 
+
+                    if transform.shape[2] == pre.array_size * pre.neurons_num:
                         transform = transform.reshape(
-                                        [post.array_size, post.neurons_num,  
+                                        [post.array_size, post.neurons_num,
                                               pre.array_size, pre.neurons_num])
                     assert transform.shape == \
                             (post.array_size, post.neurons_num, pre.array_size, pre.neurons_num)
-                    
-                    # get spiking output from pre population
-                    pre_output = pre.neurons.output 
 
-                    encoded_output = TT.mul( TT.reshape(transform, (post.array_size, post.neurons_num, pre.array_size, pre.neurons_num)), 
-                                             TT.reshape(pre_output, (pre.array_size, pre.neurons_num)) )
-                    # sum the contribution from all pre neurons for each post neuron 
+                    # get spiking output from pre population
+                    pre_output = pre.neurons.output
+
+                    encoded_output = TT.mul(
+                        TT.reshape(transform,
+                            (post.array_size, post.neurons_num, pre.array_size, pre.neurons_num)),
+                         TT.reshape(pre_output,
+                             (pre.array_size, pre.neurons_num)))
+                    # sum the contribution from all pre neurons for each post neuron
                     encoded_output = TT.sum(encoded_output, axis=3)
                     # sum the contribution from each of the pre arrays for each post neuron
                     encoded_output = TT.sum(encoded_output, axis=2)
@@ -285,25 +285,26 @@ class Network(object):
                     # to the post population, connecting them for theano
                     post.add_filtered_input(pstc=pstc, encoded_input=encoded_output)
                     return
-                                   
+
                 else: # otherwise we're in case 2
                     assert transform.shape ==  \
                                (post.array_size, post.neurons_num, dim_pre)
-                    
+
                     # can't specify a function with either side encoded connection
-                    assert func == None 
-    
+                    assert func == None
+
                     pre_output = TT.stack([pre_output] * post.neurons_num)
-                    encoded_output = TT.batched_dot( TT.reshape(transform, (post.array_size, post.neurons_num, dim_pre)),
-                                                     TT.reshape(pre_output, (post.neurons_num, dim_pre, 1)) )
-    
+                    encoded_output = TT.batched_dot(
+                        TT.reshape(transform, (post.array_size, post.neurons_num, dim_pre)),
+                        TT.reshape(pre_output, (post.neurons_num, dim_pre, 1)) )
+
                     # at this point encoded output should be (post.array_size x post.neurons_num x 1)
                     encoded_output = TT.reshape(encoded_output, (post.array_size, post.neurons_num))
                     # pass in the pre population encoded output function
                     # to the post population, connecting them for theano
                     post.add_filtered_input(pstc=pstc, encoded_input=encoded_output)
                     return
-        
+
         # if decoded-decoded connection (case 1)
         # compute transform if not given, if given make sure shape is correct
         transform = self.compute_transform(
@@ -312,7 +313,7 @@ class Network(object):
             array_size=post.array_size,
             weight=weight,
             index_pre=index_pre,
-            index_post=index_post, 
+            index_post=index_post,
             transform=transform)
 
         # apply transform matrix, directing pre dimensions
@@ -321,8 +322,8 @@ class Network(object):
 
         # pass in the pre population decoded output function
         # to the post population, connecting them for theano
-        post.add_filtered_input(pstc=pstc, decoded_input=decoded_output) 
-    
+        post.add_filtered_input(pstc=pstc, decoded_input=decoded_output)
+
     def get_object(self, name):
         """This is a method for parsing input to return the proper object.
 
@@ -330,7 +331,7 @@ class Network(object):
         indicating an origin.
 
         :param string name: the name of the desired object
-        
+
         """
         assert isinstance(name, str)
 
@@ -345,7 +346,7 @@ class Network(object):
             # origin specified
             node = self.nodes[split[0]]
             return node.origin[split[1]]
-       
+
     def get_origin(self, name, func=None):
         """This method takes in a string and returns the decoded_output function 
         of this object. If no origin is specified in name then 'X' is used.
@@ -402,17 +403,17 @@ class Network(object):
         error = self.get_origin(error)
         return post.add_learned_termination(pre, error, pstc, weight_matrix)
 
-    def make(self, name, *args, **kwargs): 
+    def make(self, name, *args, **kwargs):
         """Create and return an ensemble of neurons.
 
         Note that all ensembles are actually arrays of length 1.
-        
+
         :param string name: name of the ensemble (must be unique)
         :param int seed:
             Random number seed to use.
             If this is None and the Network was constructed
             with a seed parameter, a seed will be randomly generated.
-        :returns: the newly created ensemble      
+        :returns: the newly created ensemble
 
         """
         if 'seed' not in kwargs.keys():
@@ -428,7 +429,7 @@ class Network(object):
         self.theano_tick = None
 
         e = ensemble.Ensemble(name=name, workspace=self.workspace,
-                              *args, **kwargs) 
+                              *args, **kwargs)
 
         # store created ensemble in node dictionary
         self.nodes[name] = e
@@ -443,31 +444,29 @@ class Network(object):
         return self.make(
             name=name, neurons=neurons, dimensions=dimensions,
             array_size=array_size, **kwargs)
-    
-    def make_input(self, *args, **kwargs): 
+
+    def make_input(self, *args, **kwargs):
         """Create an input and add it to the network."""
         return self.add(Input(*args, **kwargs))
-        
+
     def make_subnetwork(self, name):
         """Create a subnetwork.  This has no functional purpose other than
         to help organize the model.  Components within a subnetwork can
         be accessed through a dotted name convention, so an element B inside
-        a subnetwork A can be referred to as A.B.       
-        
-        :param name: the name of the subnetwork to create        
+        a subnetwork A can be referred to as A.B.
+
+        :param name: the name of the subnetwork to create
         """
         return subnetwork.SubNetwork(name, self)
-            
 
-    def make_probe(self, target, name=None, dt_sample=0.01, 
+    def make_probe(self, target, name=None, dt_sample=0.01,
                    data_type='decoded', **kwargs):
         """Add a probe to measure the given target.
-        
+
         :param target: a Theano shared variable to record
         :param name: the name of the probe
         :param dt_sample: the sampling frequency of the probe
         :returns: The Probe object
-        
         """
         i = 0
         target_name = target + '-' + data_type
@@ -487,20 +486,20 @@ class Network(object):
             # set the filter to zero
             kwargs['pstc'] = 0
 
-        p = probe.Probe(name=name, network=self, target=target, 
+        p = probe.Probe(name=name, network=self, target=target,
                         target_name=target_name, dt_sample=dt_sample, **kwargs)
         self.add(p)
         return p
-            
+
     def make_theano_tick(self, fn_name='step'):
         """Generate the theano function for running the network simulation.
-        
+
         :returns: theano function
-        
+
         """
 
         # dictionary for all variables
-        # and the theano description of how to compute them 
+        # and the theano description of how to compute them
         updates = collections.OrderedDict()
 
         # for every node in the network
@@ -516,6 +515,8 @@ class Network(object):
 
         self.theano_tick = self.workspace.add_method(fn_name,
                                                      updates=updates.items())
+        self.workspace = optimize(self.workspace)
+        return self.theano_tick
 
     def run(self, time):
         """Run the simulation.
@@ -523,40 +524,40 @@ class Network(object):
         If called twice, the simulation will continue for *time*
         more seconds. Note that the ensembles are simulated at the
         dt timestep specified when they are created.
-        
+
         :param float time: the amount of time (in seconds) to run
-        
-        """         
+
+        """
         # if theano graph hasn't been calculated yet, retrieve it
         if self.theano_tick is None:
-            self.theano_tick = self.make_theano_tick() 
+            self.theano_tick = self.make_theano_tick()
 
         for i in range(int(time / self.dt)):
             # get current time step
             t = self.run_time + i * self.dt
 
             # run the non-theano nodes
-            for node in self.tick_nodes:    
+            for node in self.tick_nodes:
                 node.t = t
                 node.theano_tick()
 
             # run the theano nodes
-            self.theano_tick()    
+            self.theano_tick()
 
         # update run_time variable
         self.run_time += time
 
     def write_data_to_hd5(self, filename='data'):
-        """This is a function to call after simulation that writes the 
+        """This is a function to call after simulation that writes the
         data of all probes to filename using the Neo HDF5 IO module.
-    
+
         :param string filename: the name of the file to write out to
         """
         import neo
         from neo import hdf5io
 
-        # get list of probes 
-        probe_list = [self.nodes[node] for node in self.nodes 
+        # get list of probes
+        probe_list = [self.nodes[node] for node in self.nodes
                       if node[:5] == 'Probe']
 
         # if no probes then just return
@@ -566,7 +567,7 @@ class Network(object):
         if not filename.endswith('.hd5'): filename += '.hd5'
         iom = hdf5io.NeoHdf5IO(filename=filename)
 
-        #TODO: set up to write multiple trials/segments to same block 
+        #TODO: set up to write multiple trials/segments to same block
         #      for trials run at different points
         # create the all encompassing block structure
         block = neo.Block()
@@ -583,7 +584,7 @@ class Network(object):
             if probe.target_name.endswith('decoded'):
                 segment.analogsignals.append(
                     neo.AnalogSignal(
-                        probe.get_data() * quantities.dimensionless, 
+                        probe.get_data() * quantities.dimensionless,
                         sampling_period=probe.dt_sample * quantities.s,
                         target_name=probe.target_name) )
             # spikes become spike trains
@@ -594,13 +595,13 @@ class Network(object):
                     segment.spiketrains.append(
                         neo.SpikeTrain(
                             [
-                                t * probe.dt_sample 
-                                for t, val in enumerate(neuron[0]) 
+                                t * probe.dt_sample
+                                for t, val in enumerate(neuron[0])
                                 if val > 0
                             ] * quantities.s,
                             t_stop=len(probe.data),
                             target_name=probe.target_name) )
-            else: 
+            else:
                 print 'Do not know how to write %s to file'%probe.target_name
                 assert False
 

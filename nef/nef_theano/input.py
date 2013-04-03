@@ -3,6 +3,7 @@ from numbers import Number
 import numpy as np
 
 from . import origin
+import gworkspace
 
 
 class Input(object):
@@ -18,7 +19,7 @@ class Input(object):
         :type value: float or function
         :param float zero_after:
             time after which to set function output = 0 (s)
-        
+
         """
         self.name = name
         self.t = 0
@@ -28,28 +29,30 @@ class Input(object):
         self.origin = {}
 
         # if value parameter is a python function
-        if callable(value): 
+        if callable(value):
             self.origin['X'] = origin.Origin(func=value)
         else:
             self.origin['X'] = origin.Origin(func=None, initial_value=value)
 
     def reset(self):
         """Resets the function output state values.
-        
+
         """
         self.zeroed = False
 
     def theano_tick(self):
         """Move function input forward in time.
-        
+
         """
+        ws = gworkspace.workspace
         if self.zeroed:
             return
 
         # zero output
         if self.zero_after is not None and self.t > self.zero_after:
-            self.origin['X'].decoded_output.set_value(
-                np.float32(np.zeros(self.origin['X'].dimensions)))
+            ws[self.origin['X'].decoded_output_var] *= 0
+            #.set_value(
+                #np.float32(np.zeros(self.origin['X'].dimensions)))
             self.zeroed = True
 
         # update output decoded_output
@@ -58,8 +61,8 @@ class Input(object):
 
             # if value is a scalar output, make it a list
             if isinstance(value, Number):
-                value = [value] 
+                value = [value]
 
             # cast as float32 for consistency / speed,
             # but _after_ it's been made a list
-            self.origin['X'].decoded_output.set_value(np.float32(value)) 
+            ws[self.origin['X'].decoded_output_var] = np.float32(value)
