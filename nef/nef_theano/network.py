@@ -37,8 +37,6 @@ class Network(object):
         self.fixed_seed = fixed_seed
         # all the nodes in the network, indexed by name
         self.nodes = {}
-        # the function call to run the theano portions of the model
-        self.theano_tick = None
         # the list of nodes that have non-theano code
         self.tick_nodes = []
         self.random = random.Random()
@@ -59,7 +57,6 @@ class Network(object):
 
         """
         # remake theano_tick function, in case the node has Theano updates
-        self.theano_tick = None
         self.tick_nodes.append(node)
         self.nodes[node.name] = node
         return node
@@ -204,7 +201,6 @@ class Network(object):
         """
         # reset timer in case the model has been run,
         # as adding a new node requires rebuilding the theano function
-        self.theano_tick = None
 
         # get post Node object from node dictionary
         post = self.get_object(post)
@@ -423,11 +419,6 @@ class Network(object):
                 # if no seed provided, get one randomly from the rng
                 kwargs['seed'] = self.random.randrange(0x7fffffff)
 
-        # just in case the model has been run previously,
-        # as adding a new node means we have to rebuild
-        # the theano function
-        self.theano_tick = None
-
         e = ensemble.Ensemble(name=name, workspace=self.workspace,
                               *args, **kwargs)
 
@@ -513,10 +504,8 @@ class Network(object):
         print 'WS', self.workspace.vals_memo.keys()
         print 'MISSING', [k for k in updates if k not in self.workspace]
 
-        self.theano_tick = self.workspace.add_method(fn_name,
-                                                     updates=updates.items())
+        self.workspace.add_method(fn_name, updates=updates.items())
         self.workspace = optimize(self.workspace)
-        return self.theano_tick
 
     def run(self, time):
         """Run the simulation.
@@ -528,9 +517,6 @@ class Network(object):
         :param float time: the amount of time (in seconds) to run
 
         """
-        # if theano graph hasn't been calculated yet, retrieve it
-        if self.theano_tick is None:
-            self.theano_tick = self.make_theano_tick()
 
         for i in range(int(time / self.dt)):
             # get current time step
@@ -542,8 +528,10 @@ class Network(object):
                 node.theano_tick()
 
             # run the theano nodes
-            self.theano_tick()
+            self.workspace.step()
 
+        # XXX double-check that rounding error introduced in the range
+        #     above can't push run_time and actual ticks out of sync
         # update run_time variable
         self.run_time += time
 
