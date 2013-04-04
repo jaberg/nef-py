@@ -27,14 +27,14 @@ net.connect('A', 'D', func=mult)
 net.connect('D', 'B', func=pow) # throw in some recurrency whynot
 
 
-if 0:
-    import theano
-    theano.printing.debugprint(net.workspace.compiled_updates['step'].ufgraph.fgraph.outputs)
-
 print "Making theano_tick"
 net.make_theano_tick()
 print '... done'
-if 0:
+if 1:
+    import theano
+    theano.printing.debugprint(net.workspace.compiled_updates['step'].ufgraph.fgraph.outputs)
+
+if 1:
     from theano_workspace import profiling
     profs = profiling.add_profilers(net.workspace)
     print net.workspace.step
