@@ -74,16 +74,24 @@ class Accumulator:
             pre population multiplied by this termination's
             transform matrix
         """
+        if decoded_input.dtype != 'float32':
+            raise TypeError(decoded_input)
+
+        assert self.decay.dtype == 'float32'
+        assert self.decoded_input_var.dtype == 'float32'
+
         if self.decoded_total is None:
             # initialize internal value storing decoded input to neurons
             self.decoded_total = decoded_input 
         else:
+            assert self.decoded_total.dtype == 'float32'
             # add to the decoded input to neurons
             self.decoded_total = self.decoded_total + decoded_input 
 
         # the theano object representing the filtering operation
         self.new_decoded_input = self.decay * self.decoded_input_var + (
             1 - self.decay) * self.decoded_total 
+        assert self.new_decoded_input.dtype == 'float32'
 
     def add_encoded_input(self, encoded_input):
         """Adds an encoded input to this accumulator.
