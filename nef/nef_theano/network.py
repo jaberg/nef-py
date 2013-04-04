@@ -108,7 +108,7 @@ class Network(object):
                 post = index_post[i % len(index_post)]
                 transform[post][pre] = weight
 
-        transform = np.array(transform)
+        transform = np.asarray(transform, dtype='float32')
 
         # reformulate to account for post.array_size
         if transform.shape == (dim_post * array_size, dim_pre):
@@ -499,10 +499,6 @@ class Network(object):
             if hasattr(node, 'update'):
                 # add it to the list of variables to update every time step
                 updates.update(node.update())
-
-        print 'KEYS', updates.keys()
-        print 'WS', self.workspace.vals_memo.keys()
-        print 'MISSING', [k for k in updates if k not in self.workspace]
 
         self.workspace.add_method(fn_name, updates=updates.items())
         self.workspace = optimize(self.workspace)

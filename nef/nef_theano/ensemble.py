@@ -29,7 +29,8 @@ class Accumulator:
         name = ensemble.name
 
         # time constant for filter
-        self.decay = np.exp(-self.ensemble.neurons.dt / pstc)
+        decay = np.exp(-self.ensemble.neurons.dt / pstc)
+        self.decay = TT.as_tensor_variable(decay.astype('float32'))
         self.decoded_total = None
         self.encoded_total = None
         self.learn_total = None
@@ -307,6 +308,8 @@ class Ensemble:
         if decoded_input:
             # rescale decoded_input by this neuron's radius
             # to put us in the right range
+            if decoded_input.dtype != 'float32':
+                raise TypeError(decoded_input)
             self.accumulators[pstc].add_decoded_input(
                 TT.true_div(decoded_input, self.radius))
         elif encoded_input:
@@ -425,10 +428,10 @@ class Ensemble:
         ### find the total input current to this population of neurons
 
         # apply respective biases to neurons in the population 
-        J = np.array(self.bias)
+        J = np.array(self.bias).astype('float32')
         # set up matrix to store accumulated decoded input,
         # same size as decoded_input
-        X = np.zeros((self.array_size, self.dimensions))
+        X = np.zeros((self.array_size, self.dimensions), dtype='float32')
     
         for a in self.accumulators.values(): 
             if hasattr(a, 'new_decoded_input'):
