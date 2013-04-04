@@ -6,7 +6,7 @@ import time
 
 from .. import nef_theano as nef
 
-net=nef.Network('Runtime Test')
+net=nef.Network('Runtime Test', seed=123)
 net.make_input('in', value=math.sin)
 net.make('A', 1000, 1)
 net.make('B', 1000, 1)
@@ -32,15 +32,34 @@ net.make_theano_tick()
 print '... done'
 if 1:
     import theano
-    theano.printing.debugprint(net.workspace.compiled_updates['step'].ufgraph.fgraph.outputs)
+    fgraph = net.workspace.compiled_updates['step'].ufgraph.fgraph
+    #theano.printing.debugprint(fgraph.outputs)
+    if 1:
+      for node in fgraph.toposort():
+        if any([('float64' in str(v.dtype)) for v in node.outputs]):
+            print 'HAS 64bit output', node.op
+            theano.printing.debugprint(node.outputs)
+            break
 
-if 1:
+        if 0 and 'dot' in str(node.op):
+            print 'Dot:'
+            print node.op
+            print node.inputs
+            print [v.type for v in node.inputs]
+            theano.printing.debugprint(node.outputs)
+            if any([('64' in str(v.dtype)) for v in node.inputs]):
+                print 'HAS 64bit input', node.op
+            break
+
+if 0:
     from theano_workspace import profiling
     profs = profiling.add_profilers(net.workspace)
     print net.workspace.step
     assert net.workspace.step.profiler
+    simtime = 0.1
 else:
     profs = None
+    simtime = 0.5
 
 print "Warmup for 0.003 seconds"
 t0 = time.time()
@@ -49,14 +68,18 @@ t1 = time.time()
 print "... warmup call took", (t1 - t0), 'seconds'
 
 
-print "Timing simulation of 0.5 seconds..."
+print "Timing simulation of %s seconds..." % simtime
 start_time = time.time()
-net.run(0.5)
+net.run(simtime)
 end_time = time.time()
 print "... done"
 print "... Runtime: ", end_time - start_time, "seconds"
+if profs:
+    n_calls = profs['step'].fct_callcount
+else:
+    n_calls = simtime / net.dt
 print "... Average: %f steps/second" % (
-        0.5 / net.dt / (end_time - start_time),)
+        n_calls / (end_time - start_time),)
 
 if profs:
     profs['step'].summary(sys.stdout)
