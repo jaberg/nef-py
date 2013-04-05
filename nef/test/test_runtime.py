@@ -6,6 +6,7 @@ import time
 
 from .. import nef_theano as nef
 
+import theano
 from theano_workspace import optimize_methods
 from theano_workspace.workspace import ViewWorkspace
 
@@ -34,14 +35,14 @@ print "Making theano_tick"
 net.make_theano_tick()
 net.workspace = optimize_methods(
     ViewWorkspace(net.workspace),
-    'fast_run')
+    theano.compile.mode.OPT_STABILIZE)
 #net.workspace = optimize(self.workspace)
 
 print '... done'
 if 1:
     import theano
     fgraph = net.workspace.compiled_updates['step'].ufgraph.fgraph
-    #theano.printing.debugprint(fgraph.outputs)
+    theano.printing.debugprint(fgraph.outputs, file=open('fgraph.txt', 'wb'))
     print 'N ELEMS', len(fgraph.toposort())
 if 0:
     from theano_workspace import profiling
