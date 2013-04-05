@@ -25,9 +25,7 @@ net.connect('A', 'C', func=pow)
 net.connect('A', 'D', func=mult)
 net.connect('D', 'B', func=pow) # throw in some recurrency whynot
 
-timesteps = 5000 # running for timesteps * .1 seconds
 start_time = time.time()
 print "starting simulation"
-for i in range(timesteps):
-    net.run(0.1)
+net.run(0.1)
 print "runtime: ", time.time() - start_time, "seconds"

@@ -6,6 +6,40 @@ from theano import tensor as TT
 
 from .neuron import Neuron
 
+class LIFNeuronView(object):
+    def __init__(self, population, selection):
+        self.population = population
+        self.selection = selection
+
+    def __len__(self):
+        if isinstance(self.selection, slice):
+            start, stop = self.selection.start, self.selection.stop 
+            if start is None:
+                start = 0
+            if stop is None:
+                stop = self.population.size
+            return stop - start
+        assert 0
+
+    @property
+    def voltage(self):
+        return self.population.voltage[self.selection]
+
+    @property
+    def refractory_time(self):
+        return self.population.refractory_time[self.selection]
+
+    @property
+    def output(self):
+        return self.population.output[self.selection]
+
+    def add_to_updates(self, updates, v):
+        var = self.population.voltage
+        idx = self.selection
+        updates[var] = TT.inc_subtensor(var[idx], v)
+        return updates
+
+
 class LIFNeuron(Neuron):
     def __init__(self, size, dt=0.001, tau_rc=0.02, tau_ref=0.002):
         """Constructor for a set of LIF rate neuron.
@@ -56,7 +90,7 @@ class LIFNeuron(Neuron):
         self.voltage.set_value(np.zeros(self.size).astype('float32'))
         self.refractory_time.set_value(np.zeros(self.size).astype('float32'))
 
-    def update(self, J):
+    def update(self, J, tau_rc=None):
         """Theano update rule that implementing LIF rate neuron type
         Returns dictionary with voltage levels, refractory periods,
         and instantaneous spike raster of neurons.
@@ -66,8 +100,11 @@ class LIFNeuron(Neuron):
 
         """
 
+        if tau_rc is None:
+            tau_rc = self.tau_rc
+
         # Euler's method
-        dV = self.dt / self.tau_rc * (J - self.voltage)
+        dV = self.dt / tau_rc * (J - self.voltage)
 
         # increase the voltage, ignore values below 0
         v = TT.maximum(self.voltage + dV, 0)  
@@ -103,3 +140,9 @@ class LIFNeuron(Neuron):
                 self.refractory_time: new_refractory_time.astype('float32'),
                 self.output: spiked.astype('float32'),
                 })
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, foo):
+        return LIFNeuronView(self, foo)
