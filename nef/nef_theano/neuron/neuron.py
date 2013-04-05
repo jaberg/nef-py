@@ -23,7 +23,7 @@ def accumulate(input, neuron, time=1.0, init_time=0.05):
     # create internal state variable to keep track of number of spikes
     total = gworkspace.add_ndarray(
         np.zeros(neuron.size).astype('float32'),
-        name='neuron.total')
+        name=neuron.name + '.neuron.total')
     
     ### make the standard neuron update function
     ws = gworkspace.workspace
@@ -68,7 +68,7 @@ class Neuron(object):
 
     """
 
-    def __init__(self, size, dt):
+    def __init__(self, size, dt, name):
         """Constructor for neuron model superclass.
 
         :param int size: number of neurons in this population
@@ -80,7 +80,7 @@ class Neuron(object):
         # set up theano internal state variable
         self.output_var = gworkspace.add_ndarray(
             np.zeros(size).astype('float32'), 
-            name='neuron.output')
+            name=name + '.neuron.output')
 
     def reset(self):
         """Reset the state of the neuron."""

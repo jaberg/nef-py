@@ -12,12 +12,14 @@ class Origin(object):
     to any accessing objects.
     """
     
-    def __init__(self, func, initial_value=None, name='origin'):
+    def __init__(self, func, initial_value=None, name=None):
         """
         :param function func: the function carried out by this origin
         :param array initial_value: the initial_value of the decoded_output
         
         """
+        if name is None:
+            raise TypeError('name arg is mandatory')
         self.func = func
 
         if initial_value is None:

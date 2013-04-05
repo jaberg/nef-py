@@ -8,7 +8,7 @@ from .neuron import Neuron
 from .. import gworkspace
 
 class LIFNeuron(Neuron):
-    def __init__(self, size, dt=0.001, tau_rc=0.02, tau_ref=0.002):
+    def __init__(self, size, dt=0.001, tau_rc=0.02, tau_ref=0.002, name=None):
         """Constructor for a set of LIF rate neuron.
 
         :param int size: number of neurons in set
@@ -17,13 +17,17 @@ class LIFNeuron(Neuron):
         :param float tau_ref: refractory period length (s)
 
         """
-        Neuron.__init__(self, size, dt)
+        if name is None:
+            raise TypeError('name is actually mandatory')
+        Neuron.__init__(self, size, dt, name=name)
         self.tau_rc = tau_rc
         self.tau_ref  = tau_ref
         self.voltage_var = gworkspace.add_ndarray(
-            np.zeros(size).astype('float32'), name='lif.voltage')
+            np.zeros(size).astype('float32'),
+            name=name + '.lif.voltage')
         self.refractory_time_var = gworkspace.add_ndarray(
-            np.zeros(size).astype('float32'), name='lif.refractory_time')
+            np.zeros(size).astype('float32'),
+            name=name + '.lif.refractory_time')
         
     #TODO: make this generic so it can be applied to any neuron model
     # (by running the neurons and finding their response function),

@@ -30,9 +30,9 @@ class Input(object):
 
         # if value parameter is a python function
         if callable(value):
-            self.origin['X'] = origin.Origin(func=value)
+            self.origin['X'] = origin.Origin(func=value, name=name)
         else:
-            self.origin['X'] = origin.Origin(func=None, initial_value=value)
+            self.origin['X'] = origin.Origin(func=None, initial_value=value, name=name)
 
     def reset(self):
         """Resets the function output state values.

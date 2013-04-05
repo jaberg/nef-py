@@ -28,7 +28,12 @@ class EnsembleOrigin(Origin):
         # decoders is array_size * neurons_num * func_dimensions, 
         # initial value should have array_size values * func_dimensions
         initial_value = np.zeros(self.ensemble.array_size * func_size) 
-        Origin.__init__(self, func=func, initial_value=initial_value)
+        try:
+            fname = func.__name__
+        except:
+            fname = str(func)
+        Origin.__init__(self, func=func, initial_value=initial_value,
+                        name="%s.%s" % (ensemble.name, fname))
     
     def compute_decoders(self, func, eval_points=None):     
         """Compute decoding weights.

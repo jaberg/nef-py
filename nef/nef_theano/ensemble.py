@@ -233,7 +233,8 @@ class Ensemble:
         # which may have different parameters to pass in
         self.neurons = neuron.types[neuron_type](
             (array_size, self.neurons_num),
-            tau_rc=tau_rc, tau_ref=tau_ref, dt=dt)
+            tau_rc=tau_rc, tau_ref=tau_ref, dt=dt,
+            name=name)
 
         # compute alpha and bias
         self.srng = RandomStreams(seed=seed)
