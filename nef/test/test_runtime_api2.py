@@ -7,31 +7,28 @@ from ..nef_theano.api2 import (
     Simulator
     )
 
+#from .. import nef_theano as nef
+for n_ensembles in [10, 100, 1000]:
+    for size in [10, 100, 1000]:
+        for rank in [1, 2, 50]:
+            simtime = 0.5
+            dt = 0.001
 
+            p = LIFNeuron(size=size * n_ensembles)
+            pops = [p[ii * size:(ii + 1) * size]
+                for ii in range(n_ensembles)]
+            connections = [RandomLowRankConnection(p1, p2, rank)
+                for p1, p2 in zip(pops[:-1], pops[1:])]
 
-p = LIFNeuron(size=4000)
+            #Filter(.001, .03, source=D.output)
 
-connections = []
-A = p[:1000]
-B = p[1000:2000]
-C = p[2000:3000]
-D = p[3000:]
-#connections.append(NEFConnection(A, B, 1, value=sin))
-connections.append(RandomLowRankConnection(A, B, 1))
-connections.append(RandomLowRankConnection(A, C, 1))
-connections.append(RandomLowRankConnection(A, D, 1))
-connections.append(RandomLowRankConnection(D, B, 1))
-
-#Filter(.001, .03, source=D.output)
-
-
-sim = Simulator([p], connections)
-n_steps = 100
-print "starting simulation"
-t0 = time.time()
-sim.step(n_steps)
-t1 = time.time()
-print "runtime: ", (t1 - t0), "seconds"
-print 'speed:', (n_steps / (t1 - t0)), 'steps/second'
+            sim = Simulator([p], connections)
+            n_steps = 100
+            t0 = time.time()
+            sim.step(n_steps)
+            t1 = time.time()
+            #print "runtime: ", (t1 - t0), "seconds"
+            print n_ensembles, size, rank,
+            print 'speed:', (n_steps / (t1 - t0)), 'steps/second'
 
 
