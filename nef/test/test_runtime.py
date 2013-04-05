@@ -6,6 +6,9 @@ import time
 
 from .. import nef_theano as nef
 
+from theano_workspace import optimize_methods
+from theano_workspace.workspace import ViewWorkspace
+
 net=nef.Network('Runtime Test', seed=123)
 net.make_input('in', value=math.sin)
 net.make('A', 1000, 1)
@@ -29,28 +32,17 @@ net.connect('D', 'B', func=pow) # throw in some recurrency whynot
 
 print "Making theano_tick"
 net.make_theano_tick()
+net.workspace = optimize_methods(
+    ViewWorkspace(net.workspace),
+    'fast_run')
+#net.workspace = optimize(self.workspace)
+
 print '... done'
 if 1:
     import theano
     fgraph = net.workspace.compiled_updates['step'].ufgraph.fgraph
     #theano.printing.debugprint(fgraph.outputs)
-    if 1:
-      for node in fgraph.toposort():
-        if any([('float64' in str(v.dtype)) for v in node.outputs]):
-            print 'HAS 64bit output', node.op
-            theano.printing.debugprint(node.outputs)
-            break
-
-        if 0 and 'dot' in str(node.op):
-            print 'Dot:'
-            print node.op
-            print node.inputs
-            print [v.type for v in node.inputs]
-            theano.printing.debugprint(node.outputs)
-            if any([('64' in str(v.dtype)) for v in node.inputs]):
-                print 'HAS 64bit input', node.op
-            break
-
+    print 'N ELEMS', len(fgraph.toposort())
 if 0:
     from theano_workspace import profiling
     profs = profiling.add_profilers(net.workspace)
@@ -83,3 +75,23 @@ print "... Average: %f steps/second" % (
 
 if profs:
     profs['step'].summary(sys.stdout)
+
+
+if 0:
+    if 1:
+      for node in fgraph.toposort():
+        if any([('float64' in str(v.dtype)) for v in node.outputs]):
+            print 'HAS 64bit output', node.op
+            theano.printing.debugprint(node.outputs)
+            break
+
+        if 0 and 'dot' in str(node.op):
+            print 'Dot:'
+            print node.op
+            print node.inputs
+            print [v.type for v in node.inputs]
+            theano.printing.debugprint(node.outputs)
+            if any([('64' in str(v.dtype)) for v in node.inputs]):
+                print 'HAS 64bit input', node.op
+            break
+

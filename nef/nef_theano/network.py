@@ -6,7 +6,7 @@ import theano
 from theano import tensor as TT
 import numpy as np
 
-from theano_workspace import SimpleWorkspace, optimize
+from theano_workspace import SimpleWorkspace
 
 from . import ensemble
 from . import simplenode
@@ -501,7 +501,6 @@ class Network(object):
                 updates.update(node.update())
 
         self.workspace.add_method(fn_name, updates=updates.items())
-        self.workspace = optimize(self.workspace)
 
     def run(self, time):
         """Run the simulation.
