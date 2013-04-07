@@ -43,14 +43,17 @@ class DoubleBatchedGemv(BaseBLAS, Op):
             ii += 4
         outstor[0][0] = y
 
-    if _use_c_code:
-        def c_code(self, node, name, inp, out, sub):
-            code = dbgemv_c_code(inp, out, sub['fail'])
-            return code
+    def c_code(self, node, name, inp, out, sub):
+        if not self._use_c_code:
+            return Op.c_code(self, node, name, inp, out, sub)
+        code = dbgemv_c_code(inp, out, sub['fail'])
+        return code
 
-        def c_code_cache_version(self):
-            return ()
-            return (10, blas_header_version())
+    def c_code_cache_version(self):
+        if not self._use_c_code:
+            return Op.c_code_cache_version(self)
+        return ()
+        return (10, blas_header_version())
 
 
 def dbgemv_c_code(inp, out, fail):
