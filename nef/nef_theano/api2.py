@@ -7,6 +7,8 @@ from theano.printing import debugprint
 
 from neuron.lif import LIFNeuron
 
+from batched_gemv import DoubleBatchedGemv
+
 ############################
 # Destined for connection.py
 ############################
@@ -50,7 +52,7 @@ class BatchedLowRankConnection(object):
             for v1, v2, u, v in zip(self.v1s, self.v2s, self.us, self.vs):
                 v1uv = tensor.dot( tensor.dot(v1.output, u), v.T)
                 updates = v2.add_to_updates(updates, v1uv)
-        else:
+        elif 0:
             output = self.population.voltage
             newout = updates.get(output, tensor.zeros_like(output))
             for v1, v2, u, v in zip(self.v1s, self.v2s, self.us, self.vs):
@@ -58,13 +60,30 @@ class BatchedLowRankConnection(object):
                 v2idx = v2.selection
                 newout = tensor.inc_subtensor(newout[v2idx], v1uv)
             updates[output] = newout
+        else:
+            output = self.population.voltage
+            newout = updates.get(output, tensor.zeros_like(output))
+            args = []
+            for v1, v2, u, v in zip(self.v1s, self.v2s, self.us, self.vs):
+                args.extend((v1.start, v2.start, u, v))
+            op = DoubleBatchedGemv(len(self.v1s))
+            newout = newout + op(output, *args)
+            updates[output] = newout
+
         return updates
+
 
 def random_low_rank_connection(v1, v2, rank, rng=None, dtype='float32'):
     if rng is None:
         rng = np.random
-    u = shared(rng.randn(len(v1), rank).astype(dtype))
-    v = shared(rng.randn(len(v2), rank).astype(dtype))
+    u = shared(
+        np.asarray(rng.randn(len(v1), rank),
+            dtype=dtype,
+            order='F'))
+    v = shared(
+        np.asarray(rng.randn(len(v2), rank),
+            dtype=dtype,
+            order='F'))
     return LowRankConnection(v1, v2, u, v)
 
 

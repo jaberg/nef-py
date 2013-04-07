@@ -8,7 +8,7 @@ from ..nef_theano.api2 import (
     )
 
 #from .. import nef_theano as nef
-for n_ensembles in [10]:#, 100, 1000]:
+for n_ensembles in [10, 100, 1000]:
     for size in [10, 100, 1000]:
         for rank in [1, 2, 50]:
             simtime = 0.5
@@ -33,5 +33,6 @@ for n_ensembles in [10]:#, 100, 1000]:
             #print "runtime: ", (t1 - t0), "seconds"
             print n_ensembles, size, rank,
             print 'speed:', (n_steps / (t1 - t0)), 'steps/second'
+            print 'voltage', p.voltage.get_value()[:5]
 
 
