@@ -5,6 +5,7 @@ from theano import tensor
 from theano.tensor.blas_c import BaseBLAS
 
 class DoubleBatchedGemv(BaseBLAS, Op):
+    _use_c_code = False
     # Currently need N to identify which version of C code to use
     # In order to use one version of C code, it's necessary to remove the
     # varags calling convention of make_node.
@@ -42,13 +43,14 @@ class DoubleBatchedGemv(BaseBLAS, Op):
             ii += 4
         outstor[0][0] = y
 
-    def c_code(self, node, name, inp, out, sub):
-        code = dbgemv_c_code(inp, out, sub['fail'])
-        return code
+    if _use_c_code:
+        def c_code(self, node, name, inp, out, sub):
+            code = dbgemv_c_code(inp, out, sub['fail'])
+            return code
 
-    def c_code_cache_version(self):
-        return ()
-        return (10, blas_header_version())
+        def c_code_cache_version(self):
+            return ()
+            return (10, blas_header_version())
 
 
 def dbgemv_c_code(inp, out, fail):
