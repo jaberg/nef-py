@@ -22,6 +22,10 @@ class LIFNeuronView(object):
         assert 0
 
     @property
+    def start(self):
+        return self.selection.start
+
+    @property
     def voltage(self):
         return self.population.voltage[self.selection]
 
@@ -36,7 +40,8 @@ class LIFNeuronView(object):
     def add_to_updates(self, updates, v):
         var = self.population.voltage
         idx = self.selection
-        updates[var] = TT.inc_subtensor(var[idx], v)
+        newvar = updates.get(var, var)
+        updates[var] = TT.inc_subtensor(newvar[idx], v)
         return updates
 
 
