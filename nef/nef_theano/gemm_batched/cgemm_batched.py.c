@@ -192,27 +192,83 @@
     {
     case NPY_FLOAT:
         {
-          for (int bb = 0; bb < B; ++bb)
+          if ( M * N * K < 1000 ) // TODO: autotune this
             {
+              int sa0 = PyArray_STRIDES(%(alpha)s)[0] / elemsize;
+              int sx0 = PyArray_STRIDES(%(X)s)[0] / elemsize;
+              int sx1 = PyArray_STRIDES(%(X)s)[1] / elemsize;
+              int sx2 = PyArray_STRIDES(%(X)s)[2] / elemsize;
+              int sy0 = PyArray_STRIDES(%(Y)s)[0] / elemsize;
+              int sy1 = PyArray_STRIDES(%(Y)s)[1] / elemsize;
+              int sy2 = PyArray_STRIDES(%(Y)s)[2] / elemsize;
+              int sb0 = PyArray_STRIDES(%(beta)s)[0] / elemsize;
+              int sz0 = PyArray_STRIDES(%(Z)s)[0] / elemsize;
+              int sz1 = PyArray_STRIDES(%(Z)s)[1] / elemsize;
+              int sz2 = PyArray_STRIDES(%(Z)s)[2] / elemsize;
+              const float * __restrict__ alpha_ = (float*)(PyArray_DATA(%(alpha)s));
+              const float * __restrict__ X_ = (float*)(PyArray_DATA(%(X)s));
+              const float * __restrict__ Y_ = (float*)(PyArray_DATA(%(Y)s));
+              const float * __restrict__ beta_ = (float*)(PyArray_DATA(%(beta)s));
+              float * __restrict__ Z_ = (float*)(PyArray_DATA(%(Z)s));
+              for (int bb = 0; bb < B; ++bb)
+                {
+                  for (int mm = 0; mm < M; ++mm)
+                    {
+                      if (K > 1)
+                        {
+                          for (int nn = 0; nn < N; ++nn)
+                            {
+                              float ksum = 0.0;
+                              for (int kk = 0; kk < K; ++kk)
+                                {
+                                  float xi = X_[sx0 * bb + sx1 * mm + sx2 * kk];
+                                  float yi = Y_[sy0 * bb + sy1 * kk + sy2 * nn];
+                                  ksum += xi * yi;
+                                }
+                              Z_[sz0 * bb + sz1 * mm + sz2 * nn] =
+                                Z_[sz0 * bb + sz1 * mm + sz2 * nn] * beta_[sb0 * bb] 
+                                + ksum * alpha_[sa0 * bb];
+                            }
+                        }
+                      else
+                        {
+                          for (int nn = 0; nn < N; ++nn)
+                            {
+                              float ksum =
+                                  X_[sx0 * bb + sx1 * mm] *
+                                  Y_[sy0 * bb + sy2 * nn];
+                              Z_[sz0 * bb + sz1 * mm + sz2 * nn] =
+                                Z_[sz0 * bb + sz1 * mm + sz2 * nn] * beta_[sb0 * bb] 
+                                + ksum * alpha_[sa0 * bb];
+                            }
+                        }
+                    }
+                }
+            }
+          else
+            {
+              for (int bb = 0; bb < B; ++bb)
+                {
 
-              float* alpha = (float*)(PyArray_DATA(%(alpha)s) + PyArray_STRIDES(%(alpha)s)[0] * bb);
-              float* beta = (float*)(PyArray_DATA(%(beta)s) + PyArray_STRIDES(%(beta)s)[0] * bb);
-              float* x = (float*)(PyArray_DATA(%(X)s) + PyArray_STRIDES(%(X)s)[0] * bb);
-              float* y = (float*)(PyArray_DATA(%(Y)s) + PyArray_STRIDES(%(Y)s)[0] * bb);
-              float* z = (float*)(PyArray_DATA(%(zz)s) + PyArray_STRIDES(%(zz)s)[0] * bb);
-              //fprintf(stderr, "Calling sgemm %%i %%i %%i %%i\\n", unit, N, M, Nx1);
-              switch(unit)
-              {
-                case 0x000: sgemm_(&cN, &cN, &N, &M, &K, alpha, y, &Ylda0, x, &Xlda0, beta, z, &Zlda0); break;
-                case 0x100: sgemm_(&cN, &cT, &N, &M, &K, alpha, y, &Ylda0, x, &Xlda1, beta, z, &Zlda0); break;
-                case 0x010: sgemm_(&cT, &cN, &N, &M, &K, alpha, y, &Ylda1, x, &Xlda0, beta, z, &Zlda0); break;
-                case 0x110: sgemm_(&cT, &cT, &N, &M, &K, alpha, y, &Ylda1, x, &Xlda1, beta, z, &Zlda0); break;
-                case 0x001: sgemm_(&cT, &cT, &M, &N, &K, alpha, x, &Xlda0, y, &Ylda0, beta, z, &Zlda1); break;
-                case 0x101: sgemm_(&cN, &cT, &M, &N, &K, alpha, x, &Xlda1, y, &Ylda0, beta, z, &Zlda1); break;
-                case 0x011: sgemm_(&cT, &cN, &M, &N, &K, alpha, x, &Xlda0, y, &Ylda1, beta, z, &Zlda1); break;
-                case 0x111: sgemm_(&cN, &cN, &M, &N, &K, alpha, x, &Xlda1, y, &Ylda1, beta, z, &Zlda1); break;
-                default: PyErr_SetString(PyExc_AssertionError, "some matrix has no unit stride"); %(fail)s;
-              };
+                  float* alpha = (float*)((char*)PyArray_DATA(%(alpha)s) + PyArray_STRIDES(%(alpha)s)[0] * bb);
+                  float* beta = (float*)((char*)PyArray_DATA(%(beta)s) + PyArray_STRIDES(%(beta)s)[0] * bb);
+                  float* x = (float*)((char*)PyArray_DATA(%(X)s) + PyArray_STRIDES(%(X)s)[0] * bb);
+                  float* y = (float*)((char*)PyArray_DATA(%(Y)s) + PyArray_STRIDES(%(Y)s)[0] * bb);
+                  float* z = (float*)((char*)PyArray_DATA(%(zz)s) + PyArray_STRIDES(%(zz)s)[0] * bb);
+                  //fprintf(stderr, "Calling sgemm %%i %%i %%i %%i\\n", unit, N, M, Nx1);
+                  switch(unit)
+                  {
+                    case 0x000: sgemm_(&cN, &cN, &N, &M, &K, alpha, y, &Ylda0, x, &Xlda0, beta, z, &Zlda0); break;
+                    case 0x100: sgemm_(&cN, &cT, &N, &M, &K, alpha, y, &Ylda0, x, &Xlda1, beta, z, &Zlda0); break;
+                    case 0x010: sgemm_(&cT, &cN, &N, &M, &K, alpha, y, &Ylda1, x, &Xlda0, beta, z, &Zlda0); break;
+                    case 0x110: sgemm_(&cT, &cT, &N, &M, &K, alpha, y, &Ylda1, x, &Xlda1, beta, z, &Zlda0); break;
+                    case 0x001: sgemm_(&cT, &cT, &M, &N, &K, alpha, x, &Xlda0, y, &Ylda0, beta, z, &Zlda1); break;
+                    case 0x101: sgemm_(&cN, &cT, &M, &N, &K, alpha, x, &Xlda1, y, &Ylda0, beta, z, &Zlda1); break;
+                    case 0x011: sgemm_(&cT, &cN, &M, &N, &K, alpha, x, &Xlda0, y, &Ylda1, beta, z, &Zlda1); break;
+                    case 0x111: sgemm_(&cN, &cN, &M, &N, &K, alpha, x, &Xlda1, y, &Ylda1, beta, z, &Zlda1); break;
+                    default: PyErr_SetString(PyExc_AssertionError, "some matrix has no unit stride"); %(fail)s;
+                  };
+                }
             }
         }
       break;
