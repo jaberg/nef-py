@@ -56,9 +56,9 @@ for n_ensembles in [10, 100, 1000]:
             #print '-' * 80
             #theano.printing.debugprint(sim.f)
             t0 = time.time()
-            sim.step(nengo_1s_steps)
+            sim.step(int(2000 * .4))
             t1 = time.time()
-            our_walltime = (t1 - t0)
+            our_walltime = (t1 - t0) / (.4)
             print n_ensembles, size, rank, 'walltime', (t1 - t0),
             if key in nengo_1s:
                 nengo_walltime = nengo_1s[key]
