@@ -7,7 +7,7 @@ from theano.printing import debugprint
 
 from neuron.lif import LIFNeuron
 
-from batched_gemv import gemm_batched
+from gemm_batched import gemm_batched_op as gemm_batched
 
 ############################
 # Destined for connection.py
