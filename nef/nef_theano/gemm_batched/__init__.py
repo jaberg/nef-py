@@ -1,3 +1,4 @@
 import gemm_batched
-from gemm_batched import gemm_batched_op
+import cgemm_batched
 
+from gemm_batched import gemm_batched_op

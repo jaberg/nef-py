@@ -4,12 +4,16 @@ PyArrayObject * %(name)s_as_positive_strided12(PyArrayObject *X, int elemsize)
 {
   npy_intp* S = PyArray_STRIDES(X);
   if (   (S[1] < 1) || (S[2] < 1)
-      || (Sx[1] MOD elemsize) || (Sx[2] MOD elemsize)
-      || ((Sx[1] != elemsize) && (Sx[2] != elemsize)))
+      || (S[1] %% elemsize) || (S[2] %% elemsize)
+      || ((S[1] != elemsize) && (S[2] != elemsize)))
     {
       PyArrayObject * _x_copy = (PyArrayObject *) PyArray_Copy(X);
       if (!_x_copy)
-          %(fail)s
+        {
+          PyErr_SetString(PyExc_MemoryError,
+                          "Failed to copy ndarray");
+          return NULL;
+        }
       Py_XDECREF(X);
       return _x_copy;
     }
