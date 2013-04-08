@@ -1,11 +1,10 @@
 import time
 import theano
 
-from ..nef_theano.api2 import (
+from nef.nef_theano.api2 import (
     LIFNeuron,
     random_low_rank_connection,
     Simulator,
-    DoubleBatchedGemv,
     )
 
 nengo_1s = {}
@@ -38,12 +37,9 @@ nengo_1s_steps = 2000 # dt = 0.0005 seconds
 
 #from .. import nef_theano as nef
 for n_ensembles in [10, 100, 1000]:
-    DoubleBatchedGemv._use_c_code = n_ensembles <= 100
-    for size in [10, 100, 1000]:
+    for size in [10, 100]:#, 1000]:
         for rank in [1, 2, 50]:
             key = (n_ensembles, size, rank)
-            if key not in nengo_1s:
-                continue
             simtime = 0.5
             dt = 0.001
 
@@ -62,12 +58,12 @@ for n_ensembles in [10, 100, 1000]:
             t0 = time.time()
             sim.step(nengo_1s_steps)
             t1 = time.time()
-            #print "runtime: ", (t1 - t0), "seconds"
-            print n_ensembles, size, rank,
-            #print 'voltage', p.voltage.get_value()[:5]
-
-            nengo_walltime = nengo_1s[key]
             our_walltime = (t1 - t0)
-            print 'rel-to nengo:', nengo_walltime / our_walltime
+            print n_ensembles, size, rank, 'walltime', (t1 - t0),
+            if key in nengo_1s:
+                nengo_walltime = nengo_1s[key]
+                print 'rel-to nengo:', nengo_walltime / our_walltime
+            else:
+                print ''
 
 
