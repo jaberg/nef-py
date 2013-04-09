@@ -1,7 +1,6 @@
 
 from theano.tensor.blas_c import BaseBLAS
-from theano.tensor.blas_c import opt_c_blas_destructive
-from theano.tensor.blas_c import opt_use_c_blas
+from theano.tensor.blas_c import optdb, blas_optdb
 from theano.tensor.blas_c import local_optimizer
 from gemm_batched import GemmBatched
 from gemm_batched import gemm_batched_op
@@ -48,5 +47,5 @@ def make_c_gemmbatched_destructive(node):
         return [CGemmBatched(True)(*node.inputs)]
 
 
-opt_use_c_blas.local_optimizers.append(use_c_gemm_batched)
-opt_c_blas_destructive.local_optimizers.append(make_c_gemmbatched_destructive)
+blas_optdb['use_c_blas'].local_optimizers.append(use_c_gemm_batched)
+optdb['c_blas_destructive'].local_optimizers.append(make_c_gemmbatched_destructive)
