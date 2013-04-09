@@ -7,8 +7,11 @@ from gemm_batched import gemm_batched_op
 
 class CGemmBatched(BaseBLAS, GemmBatched):
     def c_compile_args(self):
-        return BaseBLAS.c_compile_args(self) \
-                + " -ftree-vectorize -funsafe-math-optimizations".split()
+        rval = BaseBLAS.c_compile_args(self)
+        rval.append('-ftree-vectorize')
+        rval.append('-funsafe-math-optimizations')
+        rval.append('-fopenmp')
+        return rval
 
     def c_support_code_apply(self, node, name):
         rval1 = BaseBLAS.c_support_code(self)

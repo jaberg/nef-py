@@ -210,6 +210,7 @@
               const float * __restrict__ Y_ = (float*)(PyArray_DATA(%(Y)s));
               const float * __restrict__ beta_ = (float*)(PyArray_DATA(%(beta)s));
               float * __restrict__ Z_ = (float*)(PyArray_DATA(%(Z)s));
+#pragma omp parallel for schedule(static) if(B > 2)
               for (int bb = 0; bb < B; ++bb)
                 {
                   for (int mm = 0; mm < M; ++mm)
@@ -247,6 +248,8 @@
             }
           else
             {
+              int failbit = 0;
+#pragma omp parallel for schedule(static) if(B > 2)
               for (int bb = 0; bb < B; ++bb)
                 {
 
@@ -266,9 +269,11 @@
                     case 0x101: sgemm_(&cN, &cT, &M, &N, &K, alpha, x, &Xlda1, y, &Ylda0, beta, z, &Zlda1); break;
                     case 0x011: sgemm_(&cT, &cN, &M, &N, &K, alpha, x, &Xlda0, y, &Ylda1, beta, z, &Zlda1); break;
                     case 0x111: sgemm_(&cN, &cN, &M, &N, &K, alpha, x, &Xlda1, y, &Ylda1, beta, z, &Zlda1); break;
-                    default: PyErr_SetString(PyExc_AssertionError, "some matrix has no unit stride"); %(fail)s;
+                    default: PyErr_SetString(PyExc_AssertionError, "some matrix has no unit stride");
+                             failbit = 1;
                   };
                 }
+              if (failbit) %(fail)s;
             }
         }
       break;
