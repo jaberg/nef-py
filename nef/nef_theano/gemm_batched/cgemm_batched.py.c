@@ -179,20 +179,20 @@
     int unit = 0;
     unit |= encode_strides_for_gemm(%(X)s, elemsize, 1, 2) << 8;
     unit |= encode_strides_for_gemm(%(Y)s, elemsize, 1, 2) << 4;
-    unit |= encode_strides_for_gemm(%(Z)s, elemsize, 1, 2) << 0;
+    unit |= encode_strides_for_gemm(%(zz)s, elemsize, 1, 2) << 0;
 
     int Xlda0, Xlda1;
     int Ylda0, Ylda1;
     int Zlda0, Zlda1;
     extract_lda(%(X)s, elemsize, 1, 2, &Xlda0, &Xlda1);
     extract_lda(%(Y)s, elemsize, 1, 2, &Ylda0, &Ylda1);
-    extract_lda(%(Z)s, elemsize, 1, 2, &Zlda0, &Zlda1);
+    extract_lda(%(zz)s, elemsize, 1, 2, &Zlda0, &Zlda1);
 
-    switch (PyArray_DESCR(%(Z)s)->type_num)
+    switch (PyArray_DESCR(%(zz)s)->type_num)
     {
     case NPY_FLOAT:
         {
-          if ( M * N * K < 1000 ) // TODO: autotune this
+          if ( M * N * K < 256 ) // TODO: autotune this
             {
               int sa0 = PyArray_STRIDES(%(alpha)s)[0] / elemsize;
               int sx0 = PyArray_STRIDES(%(X)s)[0] / elemsize;
@@ -202,15 +202,15 @@
               int sy1 = PyArray_STRIDES(%(Y)s)[1] / elemsize;
               int sy2 = PyArray_STRIDES(%(Y)s)[2] / elemsize;
               int sb0 = PyArray_STRIDES(%(beta)s)[0] / elemsize;
-              int sz0 = PyArray_STRIDES(%(Z)s)[0] / elemsize;
-              int sz1 = PyArray_STRIDES(%(Z)s)[1] / elemsize;
-              int sz2 = PyArray_STRIDES(%(Z)s)[2] / elemsize;
+              int sz0 = PyArray_STRIDES(%(zz)s)[0] / elemsize;
+              int sz1 = PyArray_STRIDES(%(zz)s)[1] / elemsize;
+              int sz2 = PyArray_STRIDES(%(zz)s)[2] / elemsize;
               const float * __restrict__ alpha_ = (float*)(PyArray_DATA(%(alpha)s));
               const float * __restrict__ X_ = (float*)(PyArray_DATA(%(X)s));
               const float * __restrict__ Y_ = (float*)(PyArray_DATA(%(Y)s));
               const float * __restrict__ beta_ = (float*)(PyArray_DATA(%(beta)s));
-              float * __restrict__ Z_ = (float*)(PyArray_DATA(%(Z)s));
-#pragma omp parallel for schedule(static) if(B > 2)
+              float * __restrict__ Z_ = (float*)(PyArray_DATA(%(zz)s));
+#pragma omp parallel for schedule(static, 16)
               for (int bb = 0; bb < B; ++bb)
                 {
                   for (int mm = 0; mm < M; ++mm)
@@ -227,7 +227,7 @@
                                   ksum += xi * yi;
                                 }
                               Z_[sz0 * bb + sz1 * mm + sz2 * nn] =
-                                Z_[sz0 * bb + sz1 * mm + sz2 * nn] * beta_[sb0 * bb] 
+                                Z_[sz0 * bb + sz1 * mm + sz2 * nn] * beta_[sb0 * bb]
                                 + ksum * alpha_[sa0 * bb];
                             }
                         }
@@ -249,7 +249,7 @@
           else
             {
               int failbit = 0;
-#pragma omp parallel for schedule(static) if(B > 2)
+#pragma omp parallel for schedule(static, 16)
               for (int bb = 0; bb < B; ++bb)
                 {
 
