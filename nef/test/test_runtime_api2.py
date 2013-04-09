@@ -59,10 +59,13 @@ for n_ensembles in [10, 100, 1000]:
             sim.step(int(2000 * .4))
             t1 = time.time()
             our_walltime = (t1 - t0) / (.4)
-            print n_ensembles, size, rank, 'walltime', (t1 - t0),
+            print n_ensembles, size, rank, 'walltime', our_walltime,
             if key in nengo_1s:
                 nengo_walltime = nengo_1s[key]
-                print 'rel-to nengo:', nengo_walltime / our_walltime
+                print 'rel-to nengo:', nengo_walltime / our_walltime,
+
+            if our_walltime < 1.0:
+                print ' \o/' # gold star for real-time potential :)
             else:
                 print ''
 
