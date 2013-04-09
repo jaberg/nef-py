@@ -65,7 +65,7 @@ for n_ensembles in [10, 100, 1000]:
                 print 'rel-to nengo:', nengo_walltime / our_walltime,
 
             if our_walltime < 1.0:
-                print ' \o/' # gold star for real-time potential :)
+                print ' (*)' # gold star for real-time potential :)
             else:
                 print ''
 
