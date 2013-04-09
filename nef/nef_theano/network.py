@@ -1,5 +1,8 @@
 import random
-import collections
+try:
+    from collections import OrderedDict
+except ImportError:
+    from ordereddict import OrderedDict
 import quantities
 
 import theano
@@ -494,7 +497,7 @@ class Network(object):
 
         # dictionary for all variables
         # and the theano description of how to compute them 
-        updates = collections.OrderedDict()
+        updates = OrderedDict()
 
         # for every node in the network
         for node in self.nodes.values():

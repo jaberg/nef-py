@@ -1,4 +1,7 @@
-import collections
+try:
+    from collections import OrderedDict
+except ImportError:
+    from ordereddict import OrderedDict
 
 import numpy as np
 import theano
@@ -51,7 +54,7 @@ class LearnedTermination(object):
         """
         # multiply the output by the attached ensemble's radius
         # to put us back in the right range
-        return collections.OrderedDict( {self.weight_matrix: self.learn()} ) 
+        return OrderedDict( {self.weight_matrix: self.learn()} ) 
 
 
 #TODO: This should be in the tests that need it, not in the main code?

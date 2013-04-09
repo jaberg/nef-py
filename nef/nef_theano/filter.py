@@ -1,5 +1,8 @@
 
-import collections
+try:
+    from collections import OrderedDict
+except ImportError:
+    from ordereddict import OrderedDict
 
 import numpy as np
 import theano
@@ -35,8 +38,8 @@ class Filter:
         if self.pstc > 0:
             decay = TT.cast(np.exp(-self.dt / self.pstc), self.value.dtype)
             value_new = decay*self.value + (1 - decay)*self.source
-            return collections.OrderedDict([(self.value, value_new)])
+            return OrderedDict([(self.value, value_new)])
         else:
             ### no filtering (pstc = 0), so just make the value the source
-            return collections.OrderedDict([(self.value, self.source)])
+            return OrderedDict([(self.value, self.source)])
 

@@ -1,4 +1,7 @@
-import collections
+try:
+    from collections import OrderedDict
+except ImportError:
+    from ordereddict import OrderedDict
 
 import numpy as np
 import theano
@@ -140,7 +143,7 @@ class LIFNeuron(Neuron):
         # (including setting a neuron that spikes to a voltage of 0)
         # important that it's ordered, due to theano memory optimizations
 
-        return collections.OrderedDict({
+        return OrderedDict({
                 self.voltage: (v * (1 - spiked)).astype('float32'),
                 self.refractory_time: new_refractory_time.astype('float32'),
                 self.output: spiked.astype('float32'),
