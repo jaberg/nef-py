@@ -38,7 +38,7 @@ nengo_1s_steps = 2000 # dt = 0.0005 seconds
 #from .. import nef_theano as nef
 for n_ensembles in [10, 100, 1000]:
     for size in [10, 100, 1000]:
-        for rank in [1, 2, 50]:
+        for rank in [1, 2]: #[50]:
             key = (n_ensembles, size, rank)
             simtime = 0.5
             dt = 0.001
