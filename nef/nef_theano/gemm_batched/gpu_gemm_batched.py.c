@@ -254,11 +254,11 @@
             %(fail)s;
         }
     }
-    else if ( 1 && (16 * K < MAX_SHARED_FLOATS))
+    else if ( 1 && (17 * K < MAX_SHARED_FLOATS))
     {
         dim3 n_threads(1, 16);
         //printf("N threads %%i %%i %%i\n", M, N, K);
-        int n_shared = sizeof(float) * (16 * K);
+        int n_shared = sizeof(float) * (n_threads.x + n_threads.y) * K;
         %(name)s_full_row_col<<<B, n_threads, n_shared>>>(
                 K, M, N,
                 CudaNdarray_DEV_DATA(%(alpha)s),
@@ -284,7 +284,7 @@
         cudaError_t cudaStat;    
         if (cudaSuccess != (cudaStat=cudaGetLastError()))
         {
-            fprintf(stderr, "Calling %(name)s_general with %%i %%i %%i %%i n_shared=%%i\n",
+            fprintf(stderr, "Calling %(name)s_full_row_col with %%i %%i %%i %%i n_shared=%%i\n",
                     B, N, M, K, n_shared);
             PyErr_Format(PyExc_RuntimeError, "Cuda error: %%s",
                     cudaGetErrorString(cudaStat) );

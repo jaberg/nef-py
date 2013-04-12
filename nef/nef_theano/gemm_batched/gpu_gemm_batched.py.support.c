@@ -95,7 +95,7 @@ __global__ void %(name)s_full_row_col(const int K,
         float *beta, int sb0,
         float *Z, int sz0, int sz1, int sz2)
 {
-    extern __shared__ float buf[];
+    extern __shared__ float Xbuf[];
     const int bb = blockIdx.x;
     const int dN = blockDim.x;
     const int dM = blockDim.y;
@@ -108,8 +108,7 @@ __global__ void %(name)s_full_row_col(const int K,
     float alpha_bb = alpha[bb * sa0];
     float beta_bb = beta[bb * sb0];
 
-    float * Xbuf = buf;
-    float * Ybuf = buf + dM * K;
+    float * Ybuf = Xbuf + dM * K;
 
     for (int mm = mm_rel; mm < M; mm += dM)
     {
@@ -130,7 +129,7 @@ __global__ void %(name)s_full_row_col(const int K,
             float ksum = 0.0;
             for (int kk = 0; kk < K; ++kk)
             {
-                ksum += Xbuf[kk * dN + nn_rel] * Ybuf[mm_rel * K + kk];
+                ksum += Xbuf[kk * dM + mm_rel] * Ybuf[nn_rel * K + kk];
             }
             float tmp = Z[mm * sz1 + nn * sz2];
             Z[mm * sz1 + nn * sz2] = beta_bb * tmp + alpha_bb * ksum;
