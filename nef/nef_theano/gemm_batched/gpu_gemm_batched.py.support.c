@@ -17,6 +17,7 @@ __global__ void %(name)s_asdf(const int K, const int B,
     const int bbrel = threadIdx.z;
     const int nthreads = M * N * 8;
     const int bb = bb8 * 8 + bbrel;
+    if (bb >= B) return;
     float ksum = 0.0;
     X += bb * sx0;
     Y += bb * sy0;
