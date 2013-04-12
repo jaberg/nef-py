@@ -142,8 +142,10 @@
     if (0)
     {
     }
-    else if ((N * M * 8 < MAX_N_THREADS) && (B > 16 * 8) && (8 * (N * K + M * K) < MAX_SHARED_FLOATS))
+    else if (0 && (N * M * 8 < MAX_N_THREADS) && (B > 16 * 8) && (8 * (N * K + M * K) < MAX_SHARED_FLOATS))
     {
+        // XXX disabled because it relies on contiguous C-major order without
+        // checking, and in fact we don't have that order right now AFAIK.
         dim3 n_threads(N, M, 8);
         //printf("N threads (8-way) %%i %%i %%i\n", M, N, K);
         int n_shared = sizeof(float) * (M * K + N * K) * 8;
@@ -180,8 +182,10 @@
         }
 
     }
-    else if ((N * M < MAX_N_THREADS) && (N * K + M * K < MAX_SHARED_FLOATS))
+    else if (0 && (N * M < MAX_N_THREADS) && (N * K + M * K < MAX_SHARED_FLOATS))
     {
+        // XXX disabled because it relies on contiguous C-major order without
+        // checking, and in fact we don't have that order right now AFAIK.
         dim3 n_threads(N, M);
         //printf("N threads %%i %%i %%i\n", M, N, K);
         int n_shared = sizeof(float) * (M * K + N * K);
