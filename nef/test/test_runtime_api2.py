@@ -36,9 +36,11 @@ nengo_1s_steps = 2000 # dt = 0.0005 seconds
 
 
 #from .. import nef_theano as nef
-for n_ensembles in [10, 100, 1000]:
+for n_ensembles in [10, 100, 1000, 10000]:
     for size in [10, 100, 1000]:
         for rank in [1, 2, 50]:
+            if n_ensembles * size * rank > 10 * 1000 * 1000:
+                continue
             key = (n_ensembles, size, rank)
             simtime = 0.5
             dt = 0.001
@@ -56,7 +58,7 @@ for n_ensembles in [10, 100, 1000]:
             #print '-' * 80
             #theano.printing.debugprint(sim.f)
             t0 = time.time()
-            simtime = 0.04 # 0.4
+            simtime = 0.1
             n_steps = int(2000 * simtime)
             sim.step(n_steps)
             t1 = time.time()
