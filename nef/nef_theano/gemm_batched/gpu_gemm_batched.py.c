@@ -218,6 +218,80 @@
         }
 
     }
+    else if (1 && (N == 1) && (K < MAX_SHARED_FLOATS))
+    {
+        //printf("N1 threads %%i %%i\n", M, K);
+        int n_shared = sizeof(float) * K;
+        %(name)s_N1<<<B, min(M, MAX_N_THREADS), n_shared>>>(
+                K, M,
+                CudaNdarray_DEV_DATA(%(alpha)s),
+                CudaNdarray_HOST_STRIDES(%(alpha)s)[0],
+                CudaNdarray_DEV_DATA(%(X)s),
+                CudaNdarray_HOST_STRIDES(%(X)s)[0],
+                CudaNdarray_HOST_STRIDES(%(X)s)[1],
+                CudaNdarray_HOST_STRIDES(%(X)s)[2],
+                CudaNdarray_DEV_DATA(%(Y)s),
+                CudaNdarray_HOST_STRIDES(%(Y)s)[0],
+                CudaNdarray_HOST_STRIDES(%(Y)s)[1],
+                CudaNdarray_HOST_STRIDES(%(Y)s)[2],
+                CudaNdarray_DEV_DATA(%(beta)s),
+                CudaNdarray_HOST_STRIDES(%(beta)s)[0],
+                CudaNdarray_DEV_DATA(%(Z)s),
+                CudaNdarray_HOST_STRIDES(%(Z)s)[0],
+                CudaNdarray_HOST_STRIDES(%(Z)s)[1],
+                CudaNdarray_HOST_STRIDES(%(Z)s)[2]
+                );
+
+        CNDA_THREAD_SYNC;
+
+        cudaError_t cudaStat;    
+        if (cudaSuccess != (cudaStat=cudaGetLastError()))
+        {
+            fprintf(stderr, "Calling %(name)s_N1 with %%i %%i %%i %%i n_shared=%%i\n",
+                    B, N, M, K, n_shared);
+            PyErr_Format(PyExc_RuntimeError, "Cuda error: %%s",
+                    cudaGetErrorString(cudaStat) );
+            %(fail)s;
+        }
+    }
+    else if ( 1 && (16 * K < MAX_SHARED_FLOATS))
+    {
+        dim3 n_threads(1, 16);
+        //printf("N threads %%i %%i %%i\n", M, N, K);
+        int n_shared = sizeof(float) * (16 * K);
+        %(name)s_full_row_col<<<B, n_threads, n_shared>>>(
+                K, M, N,
+                CudaNdarray_DEV_DATA(%(alpha)s),
+                CudaNdarray_HOST_STRIDES(%(alpha)s)[0],
+                CudaNdarray_DEV_DATA(%(X)s),
+                CudaNdarray_HOST_STRIDES(%(X)s)[0],
+                CudaNdarray_HOST_STRIDES(%(X)s)[1],
+                CudaNdarray_HOST_STRIDES(%(X)s)[2],
+                CudaNdarray_DEV_DATA(%(Y)s),
+                CudaNdarray_HOST_STRIDES(%(Y)s)[0],
+                CudaNdarray_HOST_STRIDES(%(Y)s)[1],
+                CudaNdarray_HOST_STRIDES(%(Y)s)[2],
+                CudaNdarray_DEV_DATA(%(beta)s),
+                CudaNdarray_HOST_STRIDES(%(beta)s)[0],
+                CudaNdarray_DEV_DATA(%(Z)s),
+                CudaNdarray_HOST_STRIDES(%(Z)s)[0],
+                CudaNdarray_HOST_STRIDES(%(Z)s)[1],
+                CudaNdarray_HOST_STRIDES(%(Z)s)[2]
+                );
+
+        CNDA_THREAD_SYNC;
+
+        cudaError_t cudaStat;    
+        if (cudaSuccess != (cudaStat=cudaGetLastError()))
+        {
+            fprintf(stderr, "Calling %(name)s_general with %%i %%i %%i %%i n_shared=%%i\n",
+                    B, N, M, K, n_shared);
+            PyErr_Format(PyExc_RuntimeError, "Cuda error: %%s",
+                    cudaGetErrorString(cudaStat) );
+            %(fail)s;
+        }
+
+    }
     else
     {
         cublasOperation_t cT = CUBLAS_OP_T;

@@ -38,7 +38,7 @@ nengo_1s_steps = 2000 # dt = 0.0005 seconds
 #from .. import nef_theano as nef
 for n_ensembles in [10, 100, 1000]:
     for size in [10, 100, 1000]:
-        for rank in [1, 2]: #[50]:
+        for rank in [1, 2, 50]:
             key = (n_ensembles, size, rank)
             simtime = 0.5
             dt = 0.001
@@ -56,17 +56,16 @@ for n_ensembles in [10, 100, 1000]:
             #print '-' * 80
             #theano.printing.debugprint(sim.f)
             t0 = time.time()
-            sim.step(int(2000 * .4))
+            n_steps = int(2000 * .4)
+            sim.step(n_steps)
             t1 = time.time()
+            dt = t1 - t0
             our_walltime = (t1 - t0) / (.4)
             print n_ensembles, size, rank, 'walltime', our_walltime,
             if key in nengo_1s:
                 nengo_walltime = nengo_1s[key]
                 print 'rel-to nengo:', nengo_walltime / our_walltime,
-
-            if our_walltime < 1.0:
-                print ' (*)' # gold star for real-time potential :)
-            else:
-                print ''
+            print 'steps/sec', n_steps / dt,
+            print ''
 
 
