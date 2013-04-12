@@ -292,6 +292,39 @@
         }
 
     }
+    else if (1)
+    {
+        dim3 n_threads(16, 16); // TODO: make some attemt to be smart
+        %(name)s_ref_noshared<<<B, n_threads>>>(
+                K, M, N,
+                CudaNdarray_DEV_DATA(%(alpha)s),
+                CudaNdarray_HOST_STRIDES(%(alpha)s)[0],
+                CudaNdarray_DEV_DATA(%(X)s),
+                CudaNdarray_HOST_STRIDES(%(X)s)[0],
+                CudaNdarray_HOST_STRIDES(%(X)s)[1],
+                CudaNdarray_HOST_STRIDES(%(X)s)[2],
+                CudaNdarray_DEV_DATA(%(Y)s),
+                CudaNdarray_HOST_STRIDES(%(Y)s)[0],
+                CudaNdarray_HOST_STRIDES(%(Y)s)[1],
+                CudaNdarray_HOST_STRIDES(%(Y)s)[2],
+                CudaNdarray_DEV_DATA(%(beta)s),
+                CudaNdarray_HOST_STRIDES(%(beta)s)[0],
+                CudaNdarray_DEV_DATA(%(Z)s),
+                CudaNdarray_HOST_STRIDES(%(Z)s)[0],
+                CudaNdarray_HOST_STRIDES(%(Z)s)[1],
+                CudaNdarray_HOST_STRIDES(%(Z)s)[2]
+                );
+        CNDA_THREAD_SYNC;
+        cudaError_t cudaStat;
+        if (cudaSuccess != (cudaStat=cudaGetLastError()))
+        {
+            fprintf(stderr, "Calling %(name)s_ref_noshared with %%i %%i %%i %%i n_shared=%%i\n",
+                    B, N, M, K, 0);
+            PyErr_Format(PyExc_RuntimeError, "Cuda error: %%s",
+                    cudaGetErrorString(cudaStat) );
+            %(fail)s;
+        }
+    }
     else
     {
         cublasOperation_t cT = CUBLAS_OP_T;
