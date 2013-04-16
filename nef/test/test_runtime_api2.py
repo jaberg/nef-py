@@ -65,10 +65,10 @@ for n_ensembles in [10, 100, 1000, 10000]:
             dt = t1 - t0
             our_walltime = (t1 - t0) / simtime
             print n_ensembles, size, rank, 'walltime', our_walltime,
+            print 'steps/sec', n_steps / dt,
             if key in nengo_1s:
                 nengo_walltime = nengo_1s[key]
                 print 'rel-to nengo:', nengo_walltime / our_walltime,
-            print 'steps/sec', n_steps / dt,
             print ''
 
 
