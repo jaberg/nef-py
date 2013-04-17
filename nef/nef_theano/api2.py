@@ -10,7 +10,7 @@ from theano.printing import debugprint
 
 from neuron.lif import LIFNeuron
 
-from gemm_batched import gemm_batched_op as gemm_batched
+#from gemm_batched import gemm_batched_op as gemm_batched
 
 ############################
 # Destined for connection.py
@@ -80,55 +80,42 @@ class BatchedLowRankConnection(object):
         self.Vstack = shared(Vstack)
 
     def add_to_updates(self, updates):
-        if 0:
-            for v1, v2, u, v in zip(self.v1s, self.v2s, self.us, self.vs):
-                v1uv = tensor.dot( tensor.dot(v1.output, u), v.T)
-                updates = v2.add_to_updates(updates, v1uv)
-        elif 0:
-            output = self.population.voltage
-            newout = updates.get(output, tensor.zeros_like(output))
-            for v1, v2, u, v in zip(self.v1s, self.v2s, self.us, self.vs):
-                v1uv = tensor.dot( tensor.dot(v1.output, u), v.T)
-                v2idx = v2.selection
-                newout = tensor.inc_subtensor(newout[v2idx], v1uv)
-            updates[output] = newout
+        v1_start = self.connections[0].v1.start
+        v1_rowlen = len(self.connections[0].v1)
+
+        v2_start = self.connections[0].v2.start
+        v2_rowlen = len(self.connections[0].v2)
+
+        v1len = len(self.connections) * v1_rowlen
+        v2len = len(self.connections) * v2_rowlen
+
+        voltage = self.population.voltage
+        output = self.population.output
+
+        # -- multiply neuron outputs by weights to increment voltage
+
+        output3 = output[v1_start:v1_start + v1len].reshape(
+                (len(self.connections), v1_rowlen, 1))
+
+        decoded = gemm_batched(1.0, self.Ustack, output3)
+
+        newvolt = updates.get(voltage)
+        if newvolt is None:
+            newvolt3 = None
         else:
-            v1_start = self.connections[0].v1.start
-            v1_rowlen = len(self.connections[0].v1)
+            newvolt3 = newvolt[v2_start:v2_start + v2len].reshape(
+                    (len(self.connections), v2_rowlen, 1))
 
-            v2_start = self.connections[0].v2.start
-            v2_rowlen = len(self.connections[0].v2)
+        newvolt3 = gemm_batched(1.0, self.Vstack, decoded, 1.0, newvolt3)
 
-            v1len = len(self.connections) * v1_rowlen
-            v2len = len(self.connections) * v2_rowlen
-
-            voltage = self.population.voltage
-            output = self.population.output
-
-            # -- multiply neuron outputs by weights to increment voltage
-
-            output3 = output[v1_start:v1_start + v1len].reshape(
-                    (len(self.connections), v1_rowlen, 1))
-
-            decoded = gemm_batched(1.0, self.Ustack, output3)
-
-            newvolt = updates.get(voltage)
-            if newvolt is None:
-                newvolt3 = None
-            else:
-                newvolt3 = newvolt[v2_start:v2_start + v2len].reshape(
-                        (len(self.connections), v2_rowlen, 1))
-
-            newvolt3 = gemm_batched(1.0, self.Vstack, decoded, 1.0, newvolt3)
-
-            if newvolt is None:
-                updates[voltage] = tensor.inc_subtensor(
-                    voltage[v2_start:v2_start + v2len],
-                    newvolt3.flatten())
-            else:
-                updates[voltage] = tensor.inc_subtensor(
-                    newvolt[v2_start:v2_start + v2len],
-                    newvolt3.flatten())
+        if newvolt is None:
+            updates[voltage] = tensor.inc_subtensor(
+                voltage[v2_start:v2_start + v2len],
+                newvolt3.flatten())
+        else:
+            updates[voltage] = tensor.inc_subtensor(
+                newvolt[v2_start:v2_start + v2len],
+                newvolt3.flatten())
         return updates
 
 

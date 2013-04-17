@@ -1,6 +1,10 @@
 import time
 import theano
 
+import pyopencl as cl
+ctx = cl.create_some_context()
+queue = cl.CommandQueue(ctx)
+
 from nef.nef_theano.api2 import (
     LIFNeuron,
     random_low_rank_connection,
@@ -46,15 +50,14 @@ for n_ensembles in [10, 100, 1000]:
             p = LIFNeuron(size=size * n_ensembles)
             pops = [p[ii * size:(ii + 1) * size]
                 for ii in range(n_ensembles)]
-            connections = [random_low_rank_connection(p1, p2, rank)
-                for p1, p2 in zip(pops[:-1], pops[1:])]
 
-
-            #Filter(.001, .03, source=D.output)
+            if 1:
+                connections = []
+            else:
+                connections = [random_low_rank_connection(p1, p2, rank)
+                    for p1, p2 in zip(pops[:-1], pops[1:])]
 
             sim = Simulator([p], connections)
-            #print '-' * 80
-            #theano.printing.debugprint(sim.f)
             t0 = time.time()
             sim.step(int(2000 * .4))
             t1 = time.time()
