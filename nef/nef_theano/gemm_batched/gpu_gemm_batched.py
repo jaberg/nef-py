@@ -58,7 +58,7 @@ def use_gpu_gemm_batched(node):
         rval = op(*map(gpu_from_host, node.inputs))
         return [host_from_gpu(rval)]
 
-#@register_opt()
+@register_opt()
 @local_optimizer()
 def use_destructive_gpu_gemm_batched(node):
     if (isinstance(node.op, GpuGemmBatched)
