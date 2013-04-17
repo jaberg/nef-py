@@ -26,7 +26,18 @@ class LIFNeuronView(object):
 
     @property
     def start(self):
-        return self.selection.start
+        return 0 if self.selection.start is None else self.selection.start
+
+    @property
+    def stop(self):
+        if self.selection.stop is None:
+            return self.population.size
+        else:
+            return self.selection.stop
+
+    @property
+    def step(self):
+        return 1 if self.selection.step is None else self.selection.step
 
     @property
     def voltage(self):
@@ -65,6 +76,7 @@ class LIFNeuron(Neuron):
         self.V_threshold = 1.0
         self.voltage = cl_array.zeros(queue, (size,), 'float32')
         self.refractory_time = cl_array.zeros(queue, (size,), 'float32')
+        self.input_current = cl_array.zeros(queue, (size,), 'float32')
 
         self._cl_fn = cl.Program(queue.context, """
             __kernel void foo(
@@ -134,9 +146,9 @@ class LIFNeuron(Neuron):
         self.voltage.set_value(np.zeros(self.size).astype('float32'))
         self.refractory_time.set_value(np.zeros(self.size).astype('float32'))
 
-    def cl_update(self, input_current):
+    def cl_update(self):
         self._cl_fn(self.queue, (self.size,), None,
-            input_current.data,
+            self.input_current.data,
             self.voltage.data,
             self.refractory_time.data,
             self.output.data)

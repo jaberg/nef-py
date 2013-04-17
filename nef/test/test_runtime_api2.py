@@ -53,11 +53,8 @@ for n_ensembles in [10, 100, 1000, 10000]:
             pops = [p[ii * size:(ii + 1) * size]
                 for ii in range(n_ensembles)]
 
-            if 1:
-                connections = []
-            else:
-                connections = [random_low_rank_connection(p1, p2, rank)
-                    for p1, p2 in zip(pops[:-1], pops[1:])]
+            connections = [random_low_rank_connection(queue, p1, p2, rank)
+                for p1, p2 in zip(pops[:-1], pops[1:])]
 
             sim = Simulator([p], connections)
             t0 = time.time()
