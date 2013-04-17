@@ -76,7 +76,8 @@ class LIFNeuron(Neuron):
         self.V_threshold = 1.0
         self.voltage = cl_array.zeros(queue, (size,), 'float32')
         self.refractory_time = cl_array.zeros(queue, (size,), 'float32')
-        self.input_current = cl_array.zeros(queue, (size,), 'float32')
+        self.input_current = cl_array.to_device(queue,
+                5 * np.random.rand(size).astype('float32'))
 
         self._cl_fn = cl.Program(queue.context, """
             __kernel void foo(
@@ -113,10 +114,10 @@ class LIFNeuron(Neuron):
                   voltage[gid] = new_voltage;
             }
             """ % self.__dict__).build().foo
-        
+
     #TODO: make this generic so it can be applied to any neuron model
     # (by running the neurons and finding their response function),
-    # rather than this special-case implementation for LIF        
+    # rather than this special-case implementation for LIF
 
     def make_alpha_bias(self, max_rates, intercepts):
         """Compute the alpha and bias needed to get the given max_rate
@@ -152,6 +153,8 @@ class LIFNeuron(Neuron):
             self.voltage.data,
             self.refractory_time.data,
             self.output.data)
+        #queue.finish()
+        #print self.output.get()[-10:]
 
     def __len__(self):
         return self.size

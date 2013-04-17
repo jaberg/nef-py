@@ -210,10 +210,12 @@ class Simulator(object):
         self.queue = queue
 
     def step(self, n):
+        queue = self.queue
         updates = [p.cl_update for p in self.populations]
         for ctype, clist in self._conns.items():
             updates.extend([c.cl_update for c in clist])
         for i in xrange(n):
             for update in updates:
-                update(self.queue)
+                update(queue)
+        queue.finish()
 
