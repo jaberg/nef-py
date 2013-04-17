@@ -146,8 +146,8 @@ class LIFNeuron(Neuron):
         self.voltage.set_value(np.zeros(self.size).astype('float32'))
         self.refractory_time.set_value(np.zeros(self.size).astype('float32'))
 
-    def cl_update(self):
-        self._cl_fn(self.queue, (self.size,), None,
+    def cl_update(self, queue):
+        self._cl_fn(queue, (self.size,), None,
             self.input_current.data,
             self.voltage.data,
             self.refractory_time.data,

@@ -82,10 +82,10 @@ class BatchedLowRankConnection(object):
         self._fn1 = self.compile_gemv_batched(queue.context, alpha=1.0, beta=0.0)
         self._fn2 = self.compile_gemv_batched(queue.context, alpha=1.0, beta=1.0)
 
-        self._args1 = [cla.data
-                for cla in (cl_u_stuff + cl_x_stuff + cl_latent_stuff)]
-        self._args2 = [cla.data
-                for cla in (cl_v_stuff + cl_latent_stuff + cl_y_stuff)]
+        self._args1 = [cla.data for cla in (cl_u_stuff + cl_x_stuff + cl_latent_stuff)]
+        self._args2 = [cla.data for cla in (cl_v_stuff + cl_latent_stuff + cl_y_stuff)]
+        #self._fn1.set_args(*self._args1)
+        #self._fn2.set_args(*self._args2)
 
     def compile_gemv_batched(self, context, alpha, beta):
         return cl.Program(context, """
@@ -123,8 +123,12 @@ class BatchedLowRankConnection(object):
             """ % locals()).build().fn
 
     def cl_update(self, queue):
-        self._fn1(queue, (len(self.connections),), None, *self._args1)
-        self._fn2(queue, (len(self.connections),), None, *self._args2)
+        if 0:
+            cl.enqueue_nd_range_kernel(queue, self._fn1, (len(self.connections),), None)
+            cl.enqueue_nd_range_kernel(queue, self._fn2, (len(self.connections),), None)
+        else:
+            self._fn1(queue, (len(self.connections),), None, *self._args1)
+            self._fn2(queue, (len(self.connections),), None, *self._args2)
 
     def add_to_updates(self, updates):
         v1_start = self.connections[0].v1.start
@@ -203,6 +207,7 @@ class Simulator(object):
         if len(self._conns.get(LowRankConnection, [])) > 1:
             self._conns[LowRankConnection] = [BatchedLowRankConnection(
                 self._conns[LowRankConnection])]
+        self.queue = queue
 
     def step(self, n):
         updates = [p.cl_update for p in self.populations]
@@ -210,5 +215,5 @@ class Simulator(object):
             updates.extend([c.cl_update for c in clist])
         for i in xrange(n):
             for update in updates:
-                update()
+                update(self.queue)
 
