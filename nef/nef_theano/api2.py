@@ -18,7 +18,7 @@ from neuron.lif import LIFNeuron
 
 class LowRankConnection(object):
     """
-    dst_view.input_current += dot(u, dot(v, src_view.ouput))
+    dst_view.input_current += dot(v, dot(u, src_view.ouput))
     """
     def __init__(self, queue, src_view, dst_view, u, v):
         self.src_view = src_view 
@@ -84,6 +84,10 @@ class BatchedLowRankConnection(object):
 
         self._args1 = [cla.data for cla in (cl_u_stuff + cl_x_stuff + cl_latent_stuff)]
         self._args2 = [cla.data for cla in (cl_v_stuff + cl_latent_stuff + cl_y_stuff)]
+        self._M1 = max(c.u.shape[1] for c in conns)
+        self._M2 = max(c.v.shape[1] for c in conns)
+        self._args1 += [cl.LocalMemory(4 * self._M1)] # XXX 4 == sizeof(float)
+        self._args2 += [cl.LocalMemory(4 * self._M2)]
         #self._fn1.set_args(*self._args1)
         #self._fn2.set_args(*self._args2)
 
@@ -99,22 +103,31 @@ class BatchedLowRankConnection(object):
                 __global const int *Y_starts,
 
                 __global float *Z_data,
-                __global const int *Z_starts
+                __global const int *Z_starts,
+                __local float * buf
                          )
             {
-                int gid = get_global_id(0);
-                X_data += X_starts[gid];
-                Y_data += Y_starts[gid];
-                Z_data += Z_starts[gid];
-                const int K = X_cols[gid];
+                const int bb = get_global_id(0);
+                const int mm0 = get_global_id(1);
+
+                X_data += X_starts[bb];
+                Y_data += Y_starts[bb];
+                Z_data += Z_starts[bb];
+                const int K = X_cols[bb];
+
                 const float alpha = %(alpha)s;
                 const float beta = %(beta)s;
-                for (int mm = 0; mm < X_rows[gid]; ++mm)
+                for (int kk = 0; kk < K; kk += get_local_size(1))
+                {
+                    buf[kk] = Y_data[kk];
+                }
+                barrier(CLK_LOCAL_MEM_FENCE);
+                for (int mm = mm0; mm < X_rows[bb]; mm += get_local_size(1))
                 {
                     float ksum = 0.0;
                     for (int kk = 0; kk < K; ++kk)
                     {
-                        ksum += X_data[kk] * Y_data[kk];
+                        ksum += X_data[mm * K + kk] * buf[kk];
                     }
                     Z_data[mm] = beta * Z_data[mm] + alpha * ksum;
                     X_data += K;
@@ -123,12 +136,12 @@ class BatchedLowRankConnection(object):
             """ % locals()).build().fn
 
     def cl_update(self, queue):
-        if 0:
-            cl.enqueue_nd_range_kernel(queue, self._fn1, (len(self.connections),), None)
-            cl.enqueue_nd_range_kernel(queue, self._fn2, (len(self.connections),), None)
-        else:
-            self._fn1(queue, (len(self.connections),), None, *self._args1)
-            self._fn2(queue, (len(self.connections),), None, *self._args2)
+        M1 = min(self._M1, 256)
+        #print (len(self.connections), M1), (1, M1,)
+        self._fn1(queue, (len(self.connections), M1), (1, M1,), *self._args1)
+        M2 = min(self._M2, 256) # XXX read max from device
+        #print (len(self.connections), M2), (1, M2,)
+        self._fn2(queue, (len(self.connections), M2), (1, M2,), *self._args2)
 
     def add_to_updates(self, updates):
         v1_start = self.connections[0].v1.start

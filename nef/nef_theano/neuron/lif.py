@@ -153,8 +153,6 @@ class LIFNeuron(Neuron):
             self.voltage.data,
             self.refractory_time.data,
             self.output.data)
-        #queue.finish()
-        #print self.output.get()[-10:]
 
     def __len__(self):
         return self.size
