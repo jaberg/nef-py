@@ -1,10 +1,11 @@
-
 try:
     from collections import OrderedDict
 except ImportError:
     from ordereddict import OrderedDict
 
 import numpy as np
+import pyopencl.array as cl_array
+
 from theano import function, shared, tensor
 from theano.printing import debugprint
 
@@ -150,27 +151,27 @@ class Simulator(object):
         self.populations = populations
         self.connections = connections
 
-        conns = OrderedDict()
-        for c in connections:
-            conns.setdefault(type(c), []).append(c)
+        queue = self.populations[0].queue
+        assert all(p.queue == queue for p in populations)
 
         # compress the set of connections as much as possible
         # TODO: make this a registry or smth
-        conns[LowRankConnection] = [BatchedLowRankConnection(
-            conns[LowRankConnection])]
+        self._conns = OrderedDict()
+        for c in connections:
+            self._conns.setdefault(type(c), []).append(c)
 
-        updates = OrderedDict()
-        for p in populations:
-            J = shared(np.random.randn(len(p)).astype('float32'))
-            updates.update(p.update(J))
-        for ctype in conns:
-            for c in conns[ctype]:
-                c.add_to_updates(updates)
-        self.f = function([], [], updates=updates)
+        if len(self._conns.get(LowRankConnection, [])) > 1:
+            self._conns[LowRankConnection] = [BatchedLowRankConnection(
+                self._conns[LowRankConnection])]
+
+        self.fake_currents = [cl_array.zeros(queue, (p.size,), 'float32')
+                for p in populations]
+
 
     def step(self, n):
         for i in xrange(n):
-            self.f()
+            for p, J in zip(self.populations, self.fake_currents):
+                p.cl_update(J)
 
 
 

@@ -1,4 +1,4 @@
-import theano
+import pyopencl as cl
 import numpy as np
 
 
@@ -55,22 +55,22 @@ class Neuron(object):
 
     """
 
-    def __init__(self, size, dt):
+    def __init__(self, queue, size, dt):
         """Constructor for neuron model superclass.
 
         :param int size: number of neurons in this population
         :param float dt: size of timestep taken during update
 
         """
+        self.queue = queue
         self.size = size
         self.dt = dt
         # set up theano internal state variable
-        self.output = theano.shared(np.zeros(size).astype('float32'), 
-                                    name='neuron.output')
+        self.output = cl.array.zeros(queue, (size,), 'float32')
 
     def reset(self):
         """Reset the state of the neuron."""
-        self.output.set_value(np.zeros(self.size).astype('float32'))
+        self.output.fill(0)
 
     def update(self, input_current):
         """All neuron subclasses must have an update function.

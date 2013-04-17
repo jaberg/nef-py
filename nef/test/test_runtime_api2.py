@@ -49,7 +49,7 @@ for n_ensembles in [10, 100, 1000, 10000]:
             simtime = 0.5
             dt = 0.001
 
-            p = LIFNeuron(size=size * n_ensembles)
+            p = LIFNeuron(queue, size=size * n_ensembles)
             pops = [p[ii * size:(ii + 1) * size]
                 for ii in range(n_ensembles)]
 
