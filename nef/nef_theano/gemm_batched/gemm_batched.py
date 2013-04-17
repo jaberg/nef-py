@@ -18,11 +18,19 @@ class GemmBatched(Op):
         else:
             self.destroy_map = {}
 
+    @property
+    def destructive(self):
+        return bool(self.destroy_map)
+
     def __eq__(self, other):
         return type(self) == type(other) and self._attrs == other._attrs
 
     def __hash__(self):
         return hash((type(self), self._attrs))
+
+    def __str__(self):
+        d = 'destructive' if self.destroy_map else 'non-destructive'
+        return '%s{%s}' % (self.__class__.__name__, d)
 
     def make_node(self, a, X, Y, b, Z):
         a, X, Y, b, Z  = map(tensor.as_tensor_variable, [a, X, Y, b, Z])

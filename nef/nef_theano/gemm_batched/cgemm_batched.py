@@ -10,8 +10,14 @@ class CGemmBatched(BaseBLAS, GemmBatched):
         rval = BaseBLAS.c_compile_args(self)
         rval.append('-ftree-vectorize')
         rval.append('-funsafe-math-optimizations')
-        rval.append('-fopenmp')
+        # -- this is doing only harm in test_runtime_api2, using openblas
+        #    on ctn00 circa April 2013.
+        #rval.append('-fopenmp')
         return rval
+
+    def __str__(self):
+        d = 'destructive' if self.destroy_map else 'non-destructive'
+        return 'CGemmBatched{%s}' % d
 
     def c_support_code_apply(self, node, name):
         rval1 = BaseBLAS.c_support_code(self)

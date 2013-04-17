@@ -76,8 +76,8 @@ class BatchedLowRankConnection(object):
         Vstack = np.concatenate(
                 [(v.get_value())[None, :, :] for v in self.vs])
 
-        self.Ustack = shared(Ustack)
-        self.Vstack = shared(Vstack)
+        self.Ustack = shared(Ustack.transpose(0, 2, 1))
+        self.Vstack = shared(Vstack.transpose(0, 2, 1))
 
     def add_to_updates(self, updates):
         v1_start = self.connections[0].v1.start
@@ -97,7 +97,8 @@ class BatchedLowRankConnection(object):
         output3 = output[v1_start:v1_start + v1len].reshape(
                 (len(self.connections), v1_rowlen, 1))
 
-        decoded = gemm_batched(1.0, self.Ustack, output3)
+        # -- the transpose is a hack for speed on GPU
+        decoded = gemm_batched(1.0, self.Ustack.transpose(0, 2, 1), output3)
 
         newvolt = updates.get(voltage)
         if newvolt is None:
@@ -106,7 +107,8 @@ class BatchedLowRankConnection(object):
             newvolt3 = newvolt[v2_start:v2_start + v2len].reshape(
                     (len(self.connections), v2_rowlen, 1))
 
-        newvolt3 = gemm_batched(1.0, self.Vstack, decoded, 1.0, newvolt3)
+        # -- the transpose is a hack for speed on GPU
+        newvolt3 = gemm_batched(1.0, self.Vstack.transpose(0, 2, 1), decoded, 1.0, newvolt3)
 
         if newvolt is None:
             updates[voltage] = tensor.inc_subtensor(

@@ -40,9 +40,11 @@ nengo_1s_steps = 2000 # dt = 0.0005 seconds
 
 
 #from .. import nef_theano as nef
-for n_ensembles in [10, 100, 1000]:
+for n_ensembles in [10, 100, 1000, 10000]:
     for size in [10, 100, 1000]:
         for rank in [1, 2, 50]:
+            if n_ensembles * size * rank > 10 * 1000 * 1000:
+                continue
             key = (n_ensembles, size, rank)
             simtime = 0.5
             dt = 0.001
@@ -59,17 +61,17 @@ for n_ensembles in [10, 100, 1000]:
 
             sim = Simulator([p], connections)
             t0 = time.time()
-            sim.step(int(2000 * .4))
+            simtime = 0.1
+            n_steps = int(2000 * simtime)
+            sim.step(n_steps)
             t1 = time.time()
-            our_walltime = (t1 - t0) / (.4)
+            dt = t1 - t0
+            our_walltime = (t1 - t0) / simtime
             print n_ensembles, size, rank, 'walltime', our_walltime,
+            print 'steps/sec', n_steps / dt,
             if key in nengo_1s:
                 nengo_walltime = nengo_1s[key]
                 print 'rel-to nengo:', nengo_walltime / our_walltime,
-
-            if our_walltime < 1.0:
-                print ' (*)' # gold star for real-time potential :)
-            else:
-                print ''
+            print ''
 
 
