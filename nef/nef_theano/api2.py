@@ -34,6 +34,17 @@ class LowRankConnection(object):
 
 
 class BatchedLowRankConnection(object):
+    """
+    for i, a, b, c, d, e, f in ranges(...):
+        dst[a:b] <- dot(enc[i], dot(dec[i], src[c:d]))
+
+        # As a side-effect, stores
+        decoded[e:f] <- dot(dec[i], src[c:d])
+
+    This is implemented as two "batched gemv" calls, so it's essential that the
+    various dst[a:b] ranges do not overlap.
+
+    """
     def __init__(self, connections):
         conns = self.connections = list(connections)
         population = self.population = connections[0].src_view.population
@@ -42,11 +53,19 @@ class BatchedLowRankConnection(object):
         assert all(c.src_view.population == self.population for c in conns)
         assert all(c.dst_view.population == self.population for c in conns)
 
-        # XXX  do not assume all connections are equal length updates to
-        #      contiguous ensembles
+        conns.sort(lambda a, b: cmp(a.dst_view.start, b.dst_view.start))
+        # -- check that we are working with non-overlapping outputs
+        for ci, cj in zip(conns[:], conns[1:]):
+            if ci.dst_view.stop > cj.dst_view.start:
+                raise NotImplementedError('overlapping outputs')
 
-        dec_stack = np.asarray([c.dec for c in conns])
-        enc_stack = np.asarray([c.enc for c in conns])
+        try:
+            dec_stack = np.asarray([c.dec for c in conns])
+            enc_stack = np.asarray([c.enc for c in conns])
+        except:
+            # -- actually, not implemented would be OK because
+            #    the kernel can technically deal with different dims
+            raise
 
         self.dec_stack = to_device(queue, dec_stack)
         self.enc_stack = to_device(queue, enc_stack)
@@ -55,27 +74,41 @@ class BatchedLowRankConnection(object):
                                       sum(c.rank for c in conns),
                                       dtype='float32')
 
+        self.X_dec_offsets = to_device(queue,
+            np.array([c.src_view.start for c in conns], dtype='intc'))
+        self.Y_enc_offsets = to_device(queue,
+            np.array([c.dst_view.start for c in conns], dtype='intc'))
+        self.decoded_offsets = to_device(queue,
+            np.arange(0, self.decoded.shape[0], conns[0].rank).astype('intc'))
+
+
+        if not all(c.src_view.step == 1 for c in conns):
+            raise NotImplementedError()
+        if not all(c.dst_view.step == 1 for c in conns):
+            raise NotImplementedError()
+
+
         decshp = self.dec_stack.shape
         encshp = self.enc_stack.shape
 
-        assert conns[1].rank == decshp[1] == encshp[2]
+        assert conns[0].rank == decshp[1] == encshp[2]
 
         self.dec_plan = choose_gemv_batched_plan(
             BMN=dec_stack.shape,
             alpha=1.0,
             Aparams=(self.dec_stack, 0, decshp[1] * decshp[2], decshp[2], 1),
-            Xparams=(population.output, 0, decshp[2], 1),
+            Xparams=(population.output, self.X_dec_offsets, 1),
             beta=0.0,
-            Yparams=(self.decoded, 0, decshp[1], 1),
+            Yparams=(self.decoded, self.decoded_offsets, 1),
             queues=[queue])
 
         self.enc_plan = choose_gemv_batched_plan(
             BMN=enc_stack.shape,
             alpha=1.0,
             Aparams=(self.enc_stack, 0, encshp[1] * encshp[2], encshp[2], 1),
-            Xparams=(self.decoded, 0, encshp[2], 1),
+            Xparams=(self.decoded, self.decoded_offsets, 1),
             beta=1.0,
-            Yparams=(population.input_current, 0, encshp[1], 1),
+            Yparams=(population.input_current, self.Y_enc_offsets, 1),
             queues=[queue])
 
 

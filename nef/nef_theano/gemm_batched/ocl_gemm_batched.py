@@ -23,20 +23,23 @@ class GemmBatchedPlan(object):
 
 def gemv_batched_ref(context, B, M, N, alpha,
                              Aoffset, AsB, AsM, AsN,
-                             Xoffset, XsB, XsN,
+                             XsN,
                              beta,
-                             Yoffset, YsB, YsM,
+                             YsM,
                             ):
     return cl.Program(context, """
         __kernel void fn(__global const float *A_data,
                          __global const float *X_data,
-                         __global float *Y_data)
+                         __global const int *X_offsets,
+                         __global float *Y_data,
+                         __global const int *Y_offsets
+                         )
         {
             const int bb = get_global_id(0);
 
             A_data += %(Aoffset)s + bb * %(AsB)s;
-            X_data += %(Xoffset)s + bb * %(XsB)s;
-            Y_data += %(Yoffset)s + bb * %(YsB)s;
+            X_data += X_offsets[bb];
+            Y_data += Y_offsets[bb];
 
             for (int mm = 0; mm < %(M)s; ++mm)
             {
@@ -74,8 +77,8 @@ def choose_gemv_batched_plan(
     ):
     B, M, N = BMN
     A_buf, Aoffset, AsB, AsM, AsN = Aparams
-    X_buf, Xoffset, XsB, XsN = Xparams
-    Y_buf, Yoffset, YsB, YsM = Yparams
+    X_buf, X_offsets, XsN = Xparams
+    Y_buf, Y_offsets, YsM = Yparams
     queue, = queues
     if np.float32 != A_buf.dtype:
         raise NotImplementedError()
@@ -88,11 +91,13 @@ def choose_gemv_batched_plan(
                                 B, M, N,
                                 alpha,
                                 Aoffset, AsB, AsM, AsN,
-                                Xoffset, XsB, XsN,
+                                XsN,
                                 beta,
-                                Yoffset, YsB, YsM)
+                                YsM)
     global_shape = (B,)
     local_shape = None
-    _fn_args = (queue, global_shape, local_shape, A_buf.data, X_buf.data, Y_buf.data)
+    _fn_args = (queue, global_shape, local_shape, A_buf.data,
+                X_buf.data, X_offsets.data,
+                Y_buf.data, Y_offsets.data)
 
     return GemvBatchedPlan(locals())
