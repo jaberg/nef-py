@@ -10,6 +10,8 @@ from pyopencl.array import to_device
 
 from neuron.lif import LIFNeuron
 
+from gemm_batched.ocl_gemm_batched import choose_gemv_batched_plan
+
 #from gemm_batched import gemm_batched_op as gemm_batched
 
 ############################
@@ -18,130 +20,64 @@ from neuron.lif import LIFNeuron
 
 class LowRankConnection(object):
     """
-    dst_view.input_current += dot(v, dot(u, src_view.ouput))
+    dst_view.input_current += dot(enc, dot(dec, src_view.ouput))
     """
-    def __init__(self, queue, src_view, dst_view, u, v):
+    def __init__(self, queue, src_view, dst_view, dec, enc):
         self.src_view = src_view 
         self.dst_view = dst_view
-        self.u = u
-        self.v = v
-        #self.u = cl_array.to_device(queue, u)
-        #self.v = cl_array.to_device(queue, v)
+        self.dec = dec
+        self.enc = enc
 
     @property
     def rank(self):
-        return self.v.shape[0]
+        return self.enc.shape[1]
 
 
 class BatchedLowRankConnection(object):
     def __init__(self, connections):
         conns = self.connections = list(connections)
         population = self.population = connections[0].src_view.population
+        queue = self.population.queue
 
         assert all(c.src_view.population == self.population for c in conns)
         assert all(c.dst_view.population == self.population for c in conns)
 
-        def consolidate(aseq):
-            u_all = np.empty(sum(a.size for a in aseq), dtype='float32')
-            u_starts = []
-            u_rows = []
-            u_cols = []
+        dec_stack = np.asarray([c.dec for c in conns])
+        enc_stack = np.asarray([c.enc for c in conns])
 
-            u_offset = 0
-            for a in aseq:
-                u_all[u_offset:u_offset + a.size] = a.flatten()
-                u_starts.append(u_offset)
-                u_rows.append(a.shape[0])
-                u_cols.append(a.shape[1])
-                u_offset += a.size
-            return map(np.asarray, [u_all, u_starts, u_rows, u_cols])
+        self.dec_stack = to_device(queue, dec_stack)
+        self.enc_stack = to_device(queue, enc_stack)
 
-        u_stuff = consolidate([c.u for c in conns])
-        v_stuff = consolidate([c.v for c in conns])
+        self.latent = cl_array.zeros(queue, (sum(c.rank for c in conns)), dtype='float32')
+        queue.flush()
 
-        queue = self.population.queue
+        decshp = self.dec_stack.shape
+        encshp = self.enc_stack.shape
 
-        cl_latent = cl_array.zeros(queue,
-                                   (sum(c.rank for c in conns)),
-                                   dtype='float32')
-        cl_latent_starts = cl_array.to_device(queue,
-                np.cumsum([0] + [c.rank for c in conns][:-1]))
-        cl_latent_stuff = [cl_latent, cl_latent_starts]
+        assert conns[1].rank == decshp[1]
 
-        cl_u_stuff = [cl_array.to_device(queue, a) for a in u_stuff]
-        cl_v_stuff = [cl_array.to_device(queue, a) for a in v_stuff]
+        self.dec_plan = choose_gemv_batched_plan(
+            BMN=dec_stack.shape,
+            alpha=1.0,
+            Aparams=(self.dec_stack, 0, decshp[1] * decshp[2], decshp[2], 1),
+            Xparams=(population.output, 0, decshp[2], 1),
+            beta=0.0,
+            Yparams=(self.latent, 0, decshp[1], 1),
+            queues=[queue])
 
-        cl_x_stuff = [population.output,
-                to_device(queue, np.asarray([c.src_view.start for c in conns])),
-                ]
-        # XXX verify that write areas do not overlap
-        cl_y_stuff = [population.input_current,
-                to_device(queue, np.asarray([c.dst_view.start for c in conns])),
-                ]
+        self.enc_plan = choose_gemv_batched_plan(
+            BMN=enc_stack.shape,
+            alpha=1.0,
+            Aparams=(self.enc_stack, 0, encshp[1] * encshp[2], encshp[2], 1),
+            Xparams=(self.latent, 0, encshp[2], 1),
+            beta=1.0,
+            Yparams=(population.input_current, 0, encshp[1], 1),
+            queues=[queue])
 
-        self._fn1 = self.compile_gemv_batched(queue.context, alpha=1.0, beta=0.0)
-        self._fn2 = self.compile_gemv_batched(queue.context, alpha=1.0, beta=1.0)
-
-        self._args1 = [cla.data for cla in (cl_u_stuff + cl_x_stuff + cl_latent_stuff)]
-        self._args2 = [cla.data for cla in (cl_v_stuff + cl_latent_stuff + cl_y_stuff)]
-        self._M1 = max(c.u.shape[1] for c in conns)
-        self._M2 = max(c.v.shape[1] for c in conns)
-        self._args1 += [cl.LocalMemory(4 * self._M1)] # XXX 4 == sizeof(float)
-        self._args2 += [cl.LocalMemory(4 * self._M2)]
-        #self._fn1.set_args(*self._args1)
-        #self._fn2.set_args(*self._args2)
-
-    def compile_gemv_batched(self, context, alpha, beta):
-        return cl.Program(context, """
-            __kernel void fn(
-                __global const float *X_data,
-                __global const int *X_starts,
-                __global const int *X_rows,
-                __global const int *X_cols,
-
-                __global const float *Y_data,
-                __global const int *Y_starts,
-
-                __global float *Z_data,
-                __global const int *Z_starts,
-                __local float * buf
-                         )
-            {
-                const int bb = get_global_id(0);
-                const int mm0 = get_global_id(1);
-
-                X_data += X_starts[bb];
-                Y_data += Y_starts[bb];
-                Z_data += Z_starts[bb];
-                const int K = X_cols[bb];
-
-                const float alpha = %(alpha)s;
-                const float beta = %(beta)s;
-                for (int kk = 0; kk < K; kk += get_local_size(1))
-                {
-                    buf[kk] = Y_data[kk];
-                }
-                barrier(CLK_LOCAL_MEM_FENCE);
-                for (int mm = mm0; mm < X_rows[bb]; mm += get_local_size(1))
-                {
-                    float ksum = 0.0;
-                    for (int kk = 0; kk < K; ++kk)
-                    {
-                        ksum += X_data[mm * K + kk] * buf[kk];
-                    }
-                    Z_data[mm] = beta * Z_data[mm] + alpha * ksum;
-                    X_data += K;
-                }
-            }
-            """ % locals()).build().fn
 
     def cl_update(self, queue):
-        M1 = min(self._M1, 256)
-        #print (len(self.connections), M1), (1, M1,)
-        self._fn1(queue, (len(self.connections), M1), (1, M1,), *self._args1)
-        M2 = min(self._M2, 256) # XXX read max from device
-        #print (len(self.connections), M2), (1, M2,)
-        self._fn2(queue, (len(self.connections), M2), (1, M2,), *self._args2)
+        self.dec_plan()
+        self.enc_plan()
 
     def add_to_updates(self, updates):
         v1_start = self.connections[0].v1.start
@@ -188,9 +124,9 @@ class BatchedLowRankConnection(object):
 def random_low_rank_connection(queue, v1, v2, rank, rng=None, dtype='float32'):
     if rng is None:
         rng = np.random
-    u = rng.randn(rank, len(v1)).astype(dtype)
-    v = rng.randn(len(v2), rank).astype(dtype)
-    return LowRankConnection(queue, v1, v2, u, v)
+    dec = rng.randn(rank, len(v1)).astype(dtype)
+    enc = rng.randn(len(v2), rank).astype(dtype)
+    return LowRankConnection(queue, v1, v2, dec, enc)
 
 
 def decoder_encoder(v1, v2, latent_v1, latent_v2, samples_v1, samples_v2, rng=None):

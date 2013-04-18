@@ -41,13 +41,12 @@ nengo_1s_steps = 2000 # dt = 0.0005 seconds
 
 #from .. import nef_theano as nef
 for n_ensembles in [10, 100, 1000, 10000]:
-    for size in [16, 128, 1024]:
-        for rank in [1, 2, 64]:
+    for size in [10, 100, 1000]:
+        for rank in [1, 2, 50]:
             if n_ensembles * size * rank > 10 * 1000 * 1000:
                 continue
             key = (n_ensembles, size, rank)
             simtime = 0.5
-            dt = 0.001
 
             p = LIFNeuron(queue, size=size * n_ensembles)
             pops = [p[ii * size:(ii + 1) * size]
@@ -62,10 +61,10 @@ for n_ensembles in [10, 100, 1000, 10000]:
             n_steps = int(2000 * simtime)
             sim.step(n_steps)
             t1 = time.time()
-            dt = t1 - t0
+            elapsed = t1 - t0
             our_walltime = (t1 - t0) / simtime
             print n_ensembles, size, rank, 'walltime', our_walltime,
-            print 'steps/sec', n_steps / dt,
+            print 'steps/sec', n_steps / elapsed,
             if key in nengo_1s:
                 nengo_walltime = nengo_1s[key]
                 print 'rel-to nengo:', nengo_walltime / our_walltime,
