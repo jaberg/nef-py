@@ -42,19 +42,23 @@ class BatchedLowRankConnection(object):
         assert all(c.src_view.population == self.population for c in conns)
         assert all(c.dst_view.population == self.population for c in conns)
 
+        # XXX  do not assume all connections are equal length updates to
+        #      contiguous ensembles
+
         dec_stack = np.asarray([c.dec for c in conns])
         enc_stack = np.asarray([c.enc for c in conns])
 
         self.dec_stack = to_device(queue, dec_stack)
         self.enc_stack = to_device(queue, enc_stack)
 
-        self.latent = cl_array.zeros(queue, (sum(c.rank for c in conns)), dtype='float32')
-        queue.flush()
+        self.decoded = cl_array.zeros(queue,
+                                      sum(c.rank for c in conns),
+                                      dtype='float32')
 
         decshp = self.dec_stack.shape
         encshp = self.enc_stack.shape
 
-        assert conns[1].rank == decshp[1]
+        assert conns[1].rank == decshp[1] == encshp[2]
 
         self.dec_plan = choose_gemv_batched_plan(
             BMN=dec_stack.shape,
@@ -62,14 +66,14 @@ class BatchedLowRankConnection(object):
             Aparams=(self.dec_stack, 0, decshp[1] * decshp[2], decshp[2], 1),
             Xparams=(population.output, 0, decshp[2], 1),
             beta=0.0,
-            Yparams=(self.latent, 0, decshp[1], 1),
+            Yparams=(self.decoded, 0, decshp[1], 1),
             queues=[queue])
 
         self.enc_plan = choose_gemv_batched_plan(
             BMN=enc_stack.shape,
             alpha=1.0,
             Aparams=(self.enc_stack, 0, encshp[1] * encshp[2], encshp[2], 1),
-            Xparams=(self.latent, 0, encshp[2], 1),
+            Xparams=(self.decoded, 0, encshp[2], 1),
             beta=1.0,
             Yparams=(population.input_current, 0, encshp[1], 1),
             queues=[queue])
@@ -78,47 +82,6 @@ class BatchedLowRankConnection(object):
     def cl_update(self, queue):
         self.dec_plan()
         self.enc_plan()
-
-    def add_to_updates(self, updates):
-        v1_start = self.connections[0].v1.start
-        v1_rowlen = len(self.connections[0].v1)
-
-        v2_start = self.connections[0].v2.start
-        v2_rowlen = len(self.connections[0].v2)
-
-        v1len = len(self.connections) * v1_rowlen
-        v2len = len(self.connections) * v2_rowlen
-
-        voltage = self.population.voltage
-        output = self.population.output
-
-        # -- multiply neuron outputs by weights to increment voltage
-
-        output3 = output[v1_start:v1_start + v1len].reshape(
-                (len(self.connections), v1_rowlen, 1))
-
-        # -- the transpose is a hack for speed on GPU
-        decoded = gemm_batched(1.0, self.Ustack.transpose(0, 2, 1), output3)
-
-        newvolt = updates.get(voltage)
-        if newvolt is None:
-            newvolt3 = None
-        else:
-            newvolt3 = newvolt[v2_start:v2_start + v2len].reshape(
-                    (len(self.connections), v2_rowlen, 1))
-
-        # -- the transpose is a hack for speed on GPU
-        newvolt3 = gemm_batched(1.0, self.Vstack.transpose(0, 2, 1), decoded, 1.0, newvolt3)
-
-        if newvolt is None:
-            updates[voltage] = tensor.inc_subtensor(
-                voltage[v2_start:v2_start + v2len],
-                newvolt3.flatten())
-        else:
-            updates[voltage] = tensor.inc_subtensor(
-                newvolt[v2_start:v2_start + v2len],
-                newvolt3.flatten())
-        return updates
 
 
 def random_low_rank_connection(queue, v1, v2, rank, rng=None, dtype='float32'):

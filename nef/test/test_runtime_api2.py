@@ -4,6 +4,8 @@ import theano
 import pyopencl as cl
 ctx = cl.create_some_context()
 queue = cl.CommandQueue(ctx)
+print cl.get_platforms()
+print ctx.devices
 
 from nef.nef_theano.api2 import (
     LIFNeuron,
