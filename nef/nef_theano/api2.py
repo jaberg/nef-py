@@ -9,7 +9,7 @@ import pyopencl as cl
 import pyopencl.array as cl_array
 from pyopencl.array import to_device
 
-from neuron.lif import LIFNeuron
+from neuron.lif import OCL_LIFNeuron
 
 from gemm_batched.ocl_gemm_batched import choose_gemv_batched_plan
 
@@ -297,7 +297,7 @@ class Network(object):
         self.name = name
         self.queue = queue
         self.objects = OrderedDict()
-        self.lif_pop = LIFNeuron(queue, 0)
+        self.lif_pop = OCL_LIFNeuron(queue, 0)
         self.connections = OrderedDict()
         self.dt = dt
         self.simtime = 0.0
@@ -308,11 +308,11 @@ class Network(object):
         else:
             raise NotImplementedError()
 
-    def make(self, name, N, M):
-        if M == 1:
+    def make(self, name, neurons, dimensions):
+        if dimensions == 1:
             start = len(self.lif_pop)
-            self.lif_pop.extend(self.queue, N)
-            self.objects[name] = self.lif_pop[start:start + N]
+            self.lif_pop.extend(self.queue, neurons)
+            self.objects[name] = self.lif_pop[start:start + neurons]
         else:
             raise NotImplementedError()
 

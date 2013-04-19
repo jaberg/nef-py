@@ -1,5 +1,6 @@
 import pyopencl as cl
 import numpy as np
+import theano
 
 
 def accumulate(input, neuron, time=1.0, init_time=0.05):
@@ -47,7 +48,7 @@ def accumulate(input, neuron, time=1.0, init_time=0.05):
     return total.get_value().astype('float32') / time
 
 
-class Neuron(object):
+class OCL_Neuron(object):
     """Superclass for neuron models.
 
     All neurons must implement an update function,
@@ -80,3 +81,38 @@ class Neuron(object):
 
         """
         raise NotImplementedError()
+
+class Neuron(object):
+    """Superclass for neuron models.
+
+    All neurons must implement an update function,
+    and should most likely define a more complicated reset function.
+
+    """
+
+    def __init__(self, size, dt):
+        """Constructor for neuron model superclass.
+
+        :param int size: number of neurons in this population
+        :param float dt: size of timestep taken during update
+
+        """
+        self.size = size
+        self.dt = dt
+        # set up theano internal state variable
+        self.output = theano.shared(np.zeros(size).astype('float32'), 
+                                    name='neuron.output')
+
+    def reset(self):
+        """Reset the state of the neuron."""
+        self.output.set_value(np.zeros(self.size).astype('float32'))
+
+    def update(self, input_current):
+        """All neuron subclasses must have an update function.
+
+        The update function takes in input_current and returns
+        activity information.
+
+        """
+        raise NotImplementedError()
+

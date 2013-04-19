@@ -421,6 +421,7 @@ class Network(object):
         # as adding a new node means we have to rebuild
         # the theano function
         self.theano_tick = None
+        print args, kwargs
 
         e = ensemble.Ensemble(*args, **kwargs) 
 
