@@ -81,11 +81,11 @@ def choose_gemv_batched_plan(
     Y_buf, Y_offsets, YsM = Yparams
     queue, = queues
     if np.float32 != A_buf.dtype:
-        raise NotImplementedError()
+        raise NotImplementedError('A dtype', A_buf.dtype)
     if np.float32 != X_buf.dtype:
-        raise NotImplementedError()
+        raise NotImplementedError('X dtype', X_buf.dtype)
     if np.float32 != Y_buf.dtype:
-        raise NotImplementedError()
+        raise NotImplementedError('Y dtype', Y_buf.dtype)
 
     _fn = gemv_batched_ref(queue.context,
                                 B, M, N,

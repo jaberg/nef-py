@@ -41,26 +41,32 @@ class FullConnection(object):
     def __init__(self, queue, src_view, dst_view, W):
         self.src_view = src_view 
         self.dst_view = dst_view
-        self.W = W
-        self._x = cl.array.empty(queue, W.shape[1], 'float32')
-        #self._y = cl.array.empty(queue, W.shape[0], 'float32')
-        self._cpy = CopySubRegion1D(queue.context, '=')
-        self._inc = CopySubRegion1D(queue.context, '+=')
 
-    def cl_update(self, queue):
-        # TODO: a proper matrix-vector multiply
-        W = self.W
+        self.W = cl.array.to_device(queue, W.astype('float32'))
         try:
             cl_x = self.src_view.output
         except AttributeError:
             cl_x = self.src_view.population.output
         cl_y = self.dst_view.population.input_current
 
-        self._cpy(queue, W.shape[1], cl_x.data, self.src_view.start,
-                  self._x.data, 0)
-        dy = np.dot(self.W, self._x.get())
-        _dy = cl.array.to_device(queue, dy)
-        self._inc(queue, len(dy), _dy.data, 0, cl_y.data, self.dst_view.start)
+        self._x_offset = cl.array.to_device(queue,
+            np.asarray([self.src_view.start], dtype='intc'))
+        self._y_offset = cl.array.to_device(queue,
+            np.asarray([self.dst_view.start], dtype='intc'))
+
+        self.dec_plan = choose_gemv_batched_plan(
+            BMN=(1,) + W.shape,
+            alpha=1.0,
+            Aparams=(self.W, 0, W.shape[0] * W.shape[1], W.shape[1], 1),
+            Xparams=(cl_x, self._x_offset, 1),
+            beta=0.0,
+            Yparams=(cl_y, self._y_offset, 1),
+            queues=[queue])
+
+
+    def cl_update(self, queue):
+        # TODO: a proper matrix-vector multiply
+        self.dec_plan()
 
     @property
     def src_population(self):
@@ -253,7 +259,8 @@ class FuncInput(object):
         self.t = 0
         self.function = function
         val = function(0)
-        self.decoded = cl.array.to_device(queue, np.asarray([val]))
+        self.decoded = cl.array.to_device(queue,
+                                          np.asarray([val], dtype='float32'))
         self.population = None
 
     @property
@@ -275,7 +282,7 @@ class FuncInput(object):
             self.decoded.fill(queue, self.function(self.t))
 
 
-class Network(object):
+class ConnectionList(object):
     def __init__(self, name):
         self.name = name
         self.connections = []

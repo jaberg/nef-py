@@ -42,7 +42,7 @@ if 1:
         LIFNeuron,
         random_low_rank_connection,
         Simulator,
-        Network,
+        ConnectionList,
         FuncInput,
         random_connection,
         decoder_encoder_connection,
@@ -59,16 +59,16 @@ if 1:
     C = lifs[2000:3000]
     D = lifs[3000:]
 
-    net = Network('Runtime Test')
-    net.add(random_connection(Q, signal, A))
-    net.add(decoder_encoder_connection(Q, A, B, func=lambda x: x))
-    net.add(decoder_encoder_connection(Q, A, C, func=pow))
-    net.add(decoder_encoder_connection(Q, A, D, func=times2))
-    net.add(decoder_encoder_connection(Q, D, B, func=pow))
+    connl = ConnectionList('Runtime Test')
+    connl.add(random_connection(Q, signal, A))
+    connl.add(decoder_encoder_connection(Q, A, B, func=lambda x: x))
+    connl.add(decoder_encoder_connection(Q, A, C, func=pow))
+    connl.add(decoder_encoder_connection(Q, A, D, func=times2))
+    connl.add(decoder_encoder_connection(Q, D, B, func=pow))
 
-    net.solve_decoder_encoders(Q)
+    connl.solve_decoder_encoders(Q)
 
-    simulator = net.simulator()
+    simulator = connl.simulator()
 
     start_time = time.time()
     print "starting simulation"
