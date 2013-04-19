@@ -241,8 +241,6 @@ class Simulator(object):
             if len(c_batched) > 1:
                 self._conns[LowRankConnection] = [batched] + c_rest
 
-        print self._conns
-
     def step(self, queue, n, dt):
         # XXX use dt
         updates = [p.cl_update for p in self.populations]
