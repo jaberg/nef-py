@@ -8,7 +8,7 @@ print cl.get_platforms()
 print ctx.devices
 
 from nef.nef_theano.api2 import (
-    LIFNeuron,
+    OCL_LIFNeuron,
     random_low_rank_connection,
     Simulator,
     )
@@ -50,7 +50,7 @@ for n_ensembles in [10, 100, 1000, 10000]:
             key = (n_ensembles, size, rank)
             simtime = 0.5
 
-            p = LIFNeuron(queue, size=size * n_ensembles)
+            p = OCL_LIFNeuron(queue, size=size * n_ensembles)
             pops = [p[ii * size:(ii + 1) * size]
                 for ii in range(n_ensembles)]
 

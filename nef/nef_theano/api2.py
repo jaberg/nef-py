@@ -213,15 +213,19 @@ class Simulator(object):
         if len(self._conns.get(LowRankConnection, [])) > 1:
             c_batched = []
             c_rest = []
+            if len(self.populations) > 1:
+                raise NotImplementedError()
+            # make sure all writes are non-overlapping
+            written = np.zeros(len(self.populations[0]), dtype='int8')
+            written[:] = 0
             for c in self._conns[LowRankConnection]:
-                try:
-                    batched = BatchedLowRankConnection(c_batched + [c])
-                    c_batched += [c]
-                except NotImplementedError:
+                if written[c.dst_view.selection].sum():
                     c_rest += [c]
-            #TODO: try to make a new batched op out of c_rest, etc.
-
+                else:
+                    c_batched += [c]
+                    written[c.dst_view.selection] = 1
             if len(c_batched) > 1:
+                batched = BatchedLowRankConnection(c_batched)
                 self._conns[LowRankConnection] = [batched] + c_rest
 
     def step(self, queue, n, dt):
