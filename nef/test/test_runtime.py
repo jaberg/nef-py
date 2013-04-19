@@ -68,6 +68,12 @@ if 1:
 
     net.solve_decoder_encoders(Q)
 
-    net.run(queue, 100, dt=dt)
+    simulator = net.simulator()
+
+    start_time = time.time()
+    print "starting simulation"
+    dt = .0005
+    simulator.step(queue, int(1.0 / dt), dt)
+    print "runtime: ", time.time() - start_time, "seconds"
 
 

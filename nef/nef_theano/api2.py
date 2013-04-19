@@ -36,6 +36,7 @@ class CopySubRegion1D(object):
     def __call__(self, queue, N, A, Aoffset, B, Boffset):
         self.fn(queue, (N,), None, A, np.intc(Aoffset), B, np.intc(Boffset))
 
+
 class FullConnection(object):
     def __init__(self, queue, src_view, dst_view, W):
         self.src_view = src_view 
@@ -234,6 +235,8 @@ class Simulator(object):
             if len(c_batched) > 1:
                 self._conns[LowRankConnection] = [batched] + c_rest
 
+        print self._conns
+
     def step(self, queue, n, dt):
         # XXX use dt
         updates = [p.cl_update for p in self.populations]
@@ -280,7 +283,7 @@ class Network(object):
     def add(self, connection):
         self.connections.append(connection) 
 
-    def run(self, queue, n_steps, dt):
+    def simulator(self):
         populations = [None]
         for c in self.connections:
             if c.src_population not in populations:
@@ -291,8 +294,7 @@ class Network(object):
                 populations.pop()
         # remove the None
         populations = populations[1:]
-        simulator = Simulator(populations, self.connections)
-        simulator.step(queue, n_steps, dt)
+        return Simulator(populations, self.connections)
 
     def solve_decoder_encoders(self, queue):
         # -- iterate over connections 

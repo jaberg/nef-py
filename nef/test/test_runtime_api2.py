@@ -61,7 +61,7 @@ for n_ensembles in [10, 100, 1000, 10000]:
             t0 = time.time()
             simtime = 0.1
             n_steps = int(2000 * simtime)
-            sim.step(n_steps)
+            sim.step(queue, n_steps, 1./2000)
             t1 = time.time()
             elapsed = t1 - t0
             our_walltime = (t1 - t0) / simtime
