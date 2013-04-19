@@ -1,5 +1,3 @@
-import pyopencl as cl
-import pyopencl.array as cl_array
 try:
     from collections import OrderedDict
 except ImportError:
@@ -7,7 +5,11 @@ except ImportError:
 
 import numpy as np
 
+import pyopencl as cl
+import pyopencl.array
+
 from .neuron import Neuron
+from ..ocl_util import CopySubRegion1D
 
 class LIFNeuronView(object):
     def __init__(self, population, selection):
@@ -55,9 +57,9 @@ class LIFNeuron(Neuron):
         self.tau_rc = tau_rc
         self.tau_ref  = tau_ref
         self.V_threshold = 1.0
-        self.voltage = cl_array.zeros(queue, (size,), 'float32')
-        self.refractory_time = cl_array.zeros(queue, (size,), 'float32')
-        self.input_current = cl_array.to_device(queue,
+        self.voltage = cl.array.zeros(queue, (size,), 'float32')
+        self.refractory_time = cl.array.zeros(queue, (size,), 'float32')
+        self.input_current = cl.array.to_device(queue,
                 5 * np.random.rand(size).astype('float32'))
 
         self._cl_fn = cl.Program(queue.context, """
@@ -134,6 +136,20 @@ class LIFNeuron(Neuron):
             self.voltage.data,
             self.refractory_time.data,
             self.output.data)
+
+    def extend(self, Q, N):
+        oldlen = len(self)
+        cpy = CopySubRegion1D(Q.context, '=')
+        def resize(arr):
+            new_arr = cl.array.zeros(Q, oldlen + N, 'float32')
+            cpy(Q, oldlen, arr.data, 0, new_arr.data, 0)
+            Q.flush()
+            return new_arr
+
+        self.voltage = resize(self.voltage)
+        self.refractory_time = resize(self.refractory_time)
+        self.input_current = resize(self.input_current)
+        self.output = resize(self.output)
 
     def __len__(self):
         return self.size

@@ -12,10 +12,8 @@ def pow(x):
 def times2(x):
     return [xval*2 for xval in x]
 
+def time_network(net):
 
-if 0:
-
-    net=nef.Network('Runtime Test')
     net.make_input('in', value=math.sin)
     net.make('A', 1000, 1)
     net.make('B', 1000, 1)
@@ -33,47 +31,18 @@ if 0:
     net.run(0.1)
     print "runtime: ", time.time() - start_time, "seconds"
 
+
+
+
+
 if 1:
     import pyopencl as cl
     ctx = cl.create_some_context()
     queue = cl.CommandQueue(ctx)
+    from nef.nef_theano import api2
 
-    from nef.nef_theano.api2 import (
-        LIFNeuron,
-        random_low_rank_connection,
-        Simulator,
-        ConnectionList,
-        FuncInput,
-        random_connection,
-        decoder_encoder_connection,
-        )
+    time_network(api2.Network('Runtime Test (OCL)', queue))
 
-    dt = 0.001
-    Q = queue
-
-    signal = FuncInput(Q, function=math.sin)
-
-    lifs = LIFNeuron(Q, size=4000)
-    A = lifs[:1000]
-    B = lifs[1000:2000]
-    C = lifs[2000:3000]
-    D = lifs[3000:]
-
-    connl = ConnectionList('Runtime Test')
-    connl.add(random_connection(Q, signal, A))
-    connl.add(decoder_encoder_connection(Q, A, B, func=lambda x: x))
-    connl.add(decoder_encoder_connection(Q, A, C, func=pow))
-    connl.add(decoder_encoder_connection(Q, A, D, func=times2))
-    connl.add(decoder_encoder_connection(Q, D, B, func=pow))
-
-    connl.solve_decoder_encoders(Q)
-
-    simulator = connl.simulator()
-
-    start_time = time.time()
-    print "starting simulation"
-    dt = .0005
-    simulator.step(queue, int(1.0 / dt), dt)
-    print "runtime: ", time.time() - start_time, "seconds"
-
+if 1:
+    time_network(nef.Network('Runtime Test'))
 

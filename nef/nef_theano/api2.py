@@ -2,6 +2,7 @@ try:
     from collections import OrderedDict
 except ImportError:
     from ordereddict import OrderedDict
+import math
 
 import numpy as np
 import pyopencl as cl
@@ -17,24 +18,6 @@ from gemm_batched.ocl_gemm_batched import choose_gemv_batched_plan
 ############################
 # Destined for connection.py
 ############################
-
-class CopySubRegion1D(object):
-    def __init__(self, context, operation = '='):
-        self.fn = cl.Program(context, """
-        __kernel void fn(
-            __global const float *A_data,
-            const int A_offset,
-            __global float *Y_data,
-            const int Y_offset
-                         )
-        {
-            const int bb = get_global_id(0);
-            Y_data[Y_offset + bb] %(operation)s A_data[A_offset + bb];
-        }
-        """ % locals()).build().fn
-
-    def __call__(self, queue, N, A, Aoffset, B, Boffset):
-        self.fn(queue, (N,), None, A, np.intc(Aoffset), B, np.intc(Boffset))
 
 
 class FullConnection(object):
@@ -281,9 +264,11 @@ class FuncInput(object):
 
 
 class ConnectionList(object):
-    def __init__(self, name):
-        self.name = name
-        self.connections = []
+    def __init__(self, connections=None):
+        if connections is None:
+            self.connections = []
+        else:
+            self.connections = connections
 
     def add(self, connection):
         self.connections.append(connection) 
@@ -305,4 +290,52 @@ class ConnectionList(object):
         # -- iterate over connections 
         # -- some sort of toposort should be used for DAGs right?
         pass
+
+
+class Network(object):
+    def __init__(self, name, queue, dt=0.001):
+        self.name = name
+        self.queue = queue
+        self.objects = OrderedDict()
+        self.lif_pop = LIFNeuron(queue, 0)
+        self.connections = OrderedDict()
+        self.dt = dt
+        self.simtime = 0.0
+
+    def make_input(self, name, value):
+        if callable(value):
+            self.objects[name] = FuncInput(self.queue, function=math.sin)
+        else:
+            raise NotImplementedError()
+
+    def make(self, name, N, M):
+        if M == 1:
+            start = len(self.lif_pop)
+            self.lif_pop.extend(self.queue, N)
+            self.objects[name] = self.lif_pop[start:start + N]
+        else:
+            raise NotImplementedError()
+
+    def connect(self, src_name, dst_name, func=lambda x: x):
+        src = self.objects[src_name]
+        dst = self.objects[dst_name]
+        if isinstance(src, FuncInput):
+            conn = random_connection(self.queue, src, dst)
+        else:
+            conn = decoder_encoder_connection(self.queue, src, dst, func)
+        # TODO: support multiple connections w same src and dst?
+        self.connections[(src_name, dst_name)] = conn
+
+        # XXX solve decoders right here using self.dt
+
+    def run(self, requested_simtime, rebuild_simulator=True):
+        n_steps = int(requested_simtime / self.dt)
+        actual_simtime = n_steps * self.dt
+        if rebuild_simulator:
+            connlist = ConnectionList(self.connections.values())
+            self.simulator = connlist.simulator()
+        self.simulator.step(self.queue, n_steps, self.dt)
+        self.simtime += actual_simtime
+
+
 
