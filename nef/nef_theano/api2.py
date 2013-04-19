@@ -18,6 +18,58 @@ from gemm_batched.ocl_gemm_batched import choose_gemv_batched_plan
 # Destined for connection.py
 ############################
 
+class CopySubRegion1D(object):
+    def __init__(self, context, operation = '='):
+        self.fn = cl.Program(context, """
+        __kernel void fn(
+            __global const float *A_data,
+            const int A_offset,
+            __global float *Y_data,
+            const int Y_offset
+                         )
+        {
+            const int bb = get_global_id(0);
+            Y_data[Y_offset + bb] %(operation)s A_data[A_offset + bb];
+        }
+        """ % locals()).build().fn
+
+    def __call__(self, queue, N, A, Aoffset, B, Boffset):
+        self.fn(queue, (N,), None, A, np.intc(Aoffset), B, np.intc(Boffset))
+
+class FullConnection(object):
+    def __init__(self, queue, src_view, dst_view, W):
+        self.src_view = src_view 
+        self.dst_view = dst_view
+        self.W = W
+        self._x = cl.array.empty(queue, W.shape[1], 'float32')
+        #self._y = cl.array.empty(queue, W.shape[0], 'float32')
+        self._cpy = CopySubRegion1D(queue.context, '=')
+        self._inc = CopySubRegion1D(queue.context, '+=')
+
+    def cl_update(self, queue):
+        # TODO: a proper matrix-vector multiply
+        W = self.W
+        try:
+            cl_x = self.src_view.output
+        except AttributeError:
+            cl_x = self.src_view.population.output
+        cl_y = self.dst_view.population.input_current
+
+        self._cpy(queue, W.shape[1], cl_x.data, self.src_view.start,
+                  self._x.data, 0)
+        dy = np.dot(self.W, self._x.get())
+        _dy = cl.array.to_device(queue, dy)
+        self._inc(queue, len(dy), _dy.data, 0, cl_y.data, self.dst_view.start)
+
+    @property
+    def src_population(self):
+        return self.src_view.population
+
+    @property
+    def dst_population(self):
+        return self.dst_view.population
+
+
 class LowRankConnection(object):
     """
     dst_view.input_current += dot(enc, dot(dec, src_view.ouput))
@@ -27,10 +79,22 @@ class LowRankConnection(object):
         self.dst_view = dst_view
         self.dec = dec
         self.enc = enc
+        self.hack = BatchedLowRankConnection([self])
 
     @property
     def rank(self):
         return self.enc.shape[1]
+
+    @property
+    def src_population(self):
+        return self.src_view.population
+
+    @property
+    def dst_population(self):
+        return self.dst_view.population
+
+    def cl_update(self, *args):
+        return self.hack.cl_update(*args)
 
 
 class BatchedLowRankConnection(object):
@@ -125,10 +189,20 @@ def random_low_rank_connection(queue, v1, v2, rank, rng=None, dtype='float32'):
     return LowRankConnection(queue, v1, v2, dec, enc)
 
 
-def decoder_encoder(v1, v2, latent_v1, latent_v2, samples_v1, samples_v2, rng=None):
-    # Given that neuron view v1 represents latent signal `latent_v1`
-    # as
-    pass
+def random_connection(queue, src, dst, rng=np.random):
+    W = rng.randn(len(dst), len(src))
+    return FullConnection(queue, src, dst, W)
+
+
+def decoder_encoder_connection(queue, src, dst, func,
+                               rank=1, rng=np.random, dtype='float32'):
+    dec = rng.randn(rank, len(src)).astype(dtype)
+    enc = rng.randn(len(dst), rank).astype(dtype)
+    rval = LowRankConnection(queue, src, dst, dec, enc)
+    rval.func = func
+    return rval
+
+
 
 
 ############################
@@ -140,9 +214,6 @@ class Simulator(object):
         self.populations = populations
         self.connections = connections
 
-        queue = self.populations[0].queue
-        assert all(p.queue == queue for p in populations)
-
         # compress the set of connections as much as possible
         # TODO: make this a registry or smth
         self._conns = OrderedDict()
@@ -150,12 +221,21 @@ class Simulator(object):
             self._conns.setdefault(type(c), []).append(c)
 
         if len(self._conns.get(LowRankConnection, [])) > 1:
-            self._conns[LowRankConnection] = [BatchedLowRankConnection(
-                self._conns[LowRankConnection])]
-        self.queue = queue
+            c_batched = []
+            c_rest = []
+            for c in self._conns[LowRankConnection]:
+                try:
+                    batched = BatchedLowRankConnection(c_batched + [c])
+                    c_batched += [c]
+                except NotImplementedError:
+                    c_rest += [c]
+            #TODO: try to make a new batched op out of c_rest, etc.
 
-    def step(self, n):
-        queue = self.queue
+            if len(c_batched) > 1:
+                self._conns[LowRankConnection] = [batched] + c_rest
+
+    def step(self, queue, n, dt):
+        # XXX use dt
         updates = [p.cl_update for p in self.populations]
         for ctype, clist in self._conns.items():
             updates.extend([c.cl_update for c in clist])
@@ -163,4 +243,59 @@ class Simulator(object):
             for update in updates:
                 update(queue)
         queue.finish()
+
+
+class FuncInput(object):
+    def __init__(self, queue, function, zero_after=None, name=None):
+        self.t = 0
+        self.function = function
+        val = function(0)
+        self.decoded = cl.array.to_device(queue, np.asarray([val]))
+        self.population = None
+
+    @property
+    def output(self):
+        return self.decoded
+
+    def __len__(self):
+        return 1
+
+    @property
+    def start(self):
+        return 0
+
+    def cl_update(self, queue, dt):
+        self.t += dt # TODO: should the dt increment go after?
+        if self.zero_after is not None and self.t > self.zero_after:
+            self.decoded.fill(queue, 0.0)
+        else:
+            self.decoded.fill(queue, self.function(self.t))
+
+
+class Network(object):
+    def __init__(self, name):
+        self.name = name
+        self.connections = []
+
+    def add(self, connection):
+        self.connections.append(connection) 
+
+    def run(self, queue, n_steps, dt):
+        populations = [None]
+        for c in self.connections:
+            if c.src_population not in populations:
+                populations.append(c.src_population)
+            if c.dst_population not in populations:
+                populations.append(c.dst_population)
+            if populations[-1] is None:
+                populations.pop()
+        # remove the None
+        populations = populations[1:]
+        simulator = Simulator(populations, self.connections)
+        simulator.step(queue, n_steps, dt)
+
+    def solve_decoder_encoders(self, queue):
+        # -- iterate over connections 
+        # -- some sort of toposort should be used for DAGs right?
+        pass
 

@@ -39,25 +39,6 @@ class LIFNeuronView(object):
     def step(self):
         return 1 if self.selection.step is None else self.selection.step
 
-    @property
-    def voltage(self):
-        return self.population.voltage[self.selection]
-
-    @property
-    def refractory_time(self):
-        return self.population.refractory_time[self.selection]
-
-    @property
-    def output(self):
-        return self.population.output[self.selection]
-
-    def add_to_updates(self, updates, v):
-        var = self.population.voltage
-        idx = self.selection
-        newvar = updates.get(var, var)
-        updates[var] = TT.inc_subtensor(newvar[idx], v)
-        return updates
-
 
 
 class LIFNeuron(Neuron):
