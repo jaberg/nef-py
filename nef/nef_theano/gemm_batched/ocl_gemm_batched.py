@@ -103,6 +103,55 @@ def gemv_batched_parout_nolocal(context, B, M, N, alpha,
         }
         """ % locals()).build().fn
 
+def gemv_batched_parout_local(context, B, M, N, alpha,
+                             Aoffset, AsB, AsM, AsN,
+                             XsN,
+                             beta,
+                             YsM,
+                            ):
+    return cl.Program(context, """
+        __kernel void fn(__global const float *A_data,
+                         __global const float *X_data,
+                         __global const int *X_offsets,
+                         __global float *Y_data,
+                         __global const int *Y_offsets,
+                         __local float * Xbuf
+                         )
+        {
+            const int bb = get_global_id(1);
+
+            A_data += %(Aoffset)s + bb * %(AsB)s;
+            X_data += X_offsets[bb];
+            Y_data += Y_offsets[bb];
+            __local float * Ybuf = Xbuf + %(N)s;
+
+            for(int nn = get_local_id(0); nn < %(N)s; nn += get_local_size(0))
+            {
+                Xbuf[nn] = X_data[nn * %(XsN)s];
+            }
+            barrier(CLK_LOCAL_MEM_FENCE);
+
+            for (int mm = get_local_id(0); mm < %(M)s; mm += get_local_size(0))
+            {
+                float tmp = 0.0;
+                for (int nn = 0; nn < %(N)s; nn += 1)
+                {
+                    tmp += A_data[nn * %(AsN)s + mm * %(AsM)s] * Xbuf[nn];
+                }
+
+                if (%(beta)s != 0)
+                {
+                    Y_data[mm * %(YsM)s] = Y_data[mm * %(YsM)s] * %(beta)s
+                        + %(alpha)s * tmp;
+                }
+                else
+                {
+                    Y_data[mm * %(YsM)s] = %(alpha)s * tmp;
+                }
+            }
+        }
+        """ % locals()).build().fn
+
 
 
 class GemvBatchedPlan(object):
@@ -145,7 +194,7 @@ def choose_gemv_batched_plan(
         _fn_args = (queue, global_shape, local_shape, A_buf.data,
                     X_buf.data, X_offsets.data,
                     Y_buf.data, Y_offsets.data)
-    else:
+    elif 0: # this is a good idea for A in Fortran order
         _fn = gemv_batched_parout_nolocal(queue.context,
             B, M, N,
             alpha,
@@ -159,6 +208,21 @@ def choose_gemv_batched_plan(
         _fn_args = (queue, global_shape, local_shape, A_buf.data,
                     X_buf.data, X_offsets.data,
                     Y_buf.data, Y_offsets.data)
+    else: # this is a good idea for A in C order
+        _fn = gemv_batched_parout_local(queue.context,
+            B, M, N,
+            alpha,
+            Aoffset, AsB, AsM, AsN,
+            XsN,
+            beta,
+            YsM)
+        mpergroup = min(queue.context.devices[0].max_work_group_size, M)
+        global_shape = (mpergroup, B,)
+        local_shape = (mpergroup, 1)
+        local_mem = cl.LocalMemory(4 * N)
+        _fn_args = (queue, global_shape, local_shape, A_buf.data,
+                    X_buf.data, X_offsets.data,
+                    Y_buf.data, Y_offsets.data, local_mem)
 
 
     return GemvBatchedPlan(locals())

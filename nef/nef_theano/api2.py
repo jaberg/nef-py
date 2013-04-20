@@ -219,12 +219,14 @@ class Simulator(object):
             written = np.zeros(len(self.populations[0]), dtype='int8')
             written[:] = 0
             for c in self._conns[LowRankConnection]:
-                if written[c.dst_view.selection].sum():
+                print written
+                if written[c.dst_view.selection].any():
                     c_rest += [c]
                 else:
                     c_batched += [c]
                     written[c.dst_view.selection] = 1
             if len(c_batched) > 1:
+                print c_batched, c_rest
                 batched = BatchedLowRankConnection(c_batched)
                 self._conns[LowRankConnection] = [batched] + c_rest
 

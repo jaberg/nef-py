@@ -155,7 +155,7 @@ class OCL_LIFNeuron(OCL_Neuron):
         self.output = resize(self.output)
 
     def __len__(self):
-        return self.size
+        return self.output.shape[0]
 
     def __getitem__(self, foo):
         return LIFNeuronView(self, foo)
