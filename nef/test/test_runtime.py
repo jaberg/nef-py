@@ -3,7 +3,7 @@
 import math
 import time
 
-from .. import nef_theano as nef
+from nef import nef_theano as nef
 
 # some functions to use in our network
 def pow(x):
@@ -28,7 +28,9 @@ def time_network(net):
 
     start_time = time.time()
     print "starting simulation"
-    net.run(0.1)
+    #net.run(0.1)
+    #net.run(1)
+    net.run(10)
     print "runtime: ", time.time() - start_time, "seconds"
 
 
@@ -43,6 +45,6 @@ if 1:
 
     time_network(api2.Network('Runtime Test (OCL)', queue))
 
-if 1:
+if 0:
     time_network(nef.Network('Runtime Test'))
 

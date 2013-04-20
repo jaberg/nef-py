@@ -12,28 +12,28 @@ from pyopencl.array import to_device
 from neuron.lif import OCL_LIFNeuron
 
 from gemm_batched.ocl_gemm_batched import choose_gemv_batched_plan
+from gemm_batched.ocl_gemm_batched import choose_gemm_batched_plan
 
-#from gemm_batched import gemm_batched_op as gemm_batched
 
 ############################
 # Destined for connection.py
 ############################
 
 
-class FullConnection(object):
-    def __init__(self, queue, src_view, dst_view, W):
-        self.src_view = src_view 
+class FullEncoder(object):
+    def __init__(self, queue, src, dst_view, W):
+        self.src = src 
         self.dst_view = dst_view
 
         self.W = cl.array.to_device(queue, W.astype('float32'))
         try:
-            cl_x = self.src_view.output
+            cl_x = self.src.output
         except AttributeError:
-            cl_x = self.src_view.population.output
+            cl_x = self.src.population.output
         cl_y = self.dst_view.population.input_current
 
         self._x_offset = cl.array.to_device(queue,
-            np.asarray([self.src_view.start], dtype='intc'))
+            np.asarray([self.src.start], dtype='intc'))
         self._y_offset = cl.array.to_device(queue,
             np.asarray([self.dst_view.start], dtype='intc'))
 
@@ -47,13 +47,9 @@ class FullConnection(object):
             queues=[queue])
 
 
-    def cl_update(self, queue):
+    def cl_update(self, queue, dt):
         # TODO: a proper matrix-vector multiply
         self.dec_plan()
-
-    @property
-    def src_population(self):
-        return self.src_view.population
 
     @property
     def dst_population(self):
@@ -64,11 +60,12 @@ class LowRankConnection(object):
     """
     dst_view.input_current += dot(enc, dot(dec, src_view.ouput))
     """
-    def __init__(self, queue, src_view, dst_view, dec, enc):
+    def __init__(self, queue, src_view, dst_view, dec, enc, func=None):
         self.src_view = src_view 
         self.dst_view = dst_view
         self.dec = dec
         self.enc = enc
+        self.func = func
         self.hack = BatchedLowRankConnection([self])
 
     @property
@@ -127,6 +124,12 @@ class BatchedLowRankConnection(object):
         self.decoded = cl_array.zeros(queue,
                                       sum(c.rank for c in conns),
                                       dtype='float32')
+        self.decoded_error = cl_array.zeros(queue,
+                                      sum(c.rank for c in conns),
+                                      dtype='float32')
+        self.target = cl_array.zeros(queue,
+                                      sum(c.rank for c in conns),
+                                      dtype='float32')
 
         self.X_dec_offsets = to_device(queue,
             np.array([c.src_view.start for c in conns], dtype='intc'))
@@ -156,7 +159,7 @@ class BatchedLowRankConnection(object):
             Yparams=(self.decoded, self.decoded_offsets, 1),
             queues=[queue])
 
-        self.enc_plan = choose_gemv_batched_plan(
+        self.enc_decoded = choose_gemv_batched_plan(
             BMN=enc_stack.shape,
             alpha=1.0,
             Aparams=(self.enc_stack, 0, encshp[1] * encshp[2], encshp[2], 1),
@@ -165,10 +168,65 @@ class BatchedLowRankConnection(object):
             Yparams=(population.input_current, self.Y_enc_offsets, 1),
             queues=[queue])
 
+        self.enc_target = choose_gemv_batched_plan(
+            BMN=enc_stack.shape,
+            alpha=1.0,
+            Aparams=(self.enc_stack, 0, encshp[1] * encshp[2], encshp[2], 1),
+            Xparams=(self.target, self.decoded_offsets, 1),
+            beta=1.0,
+            Yparams=(population.input_current, self.Y_enc_offsets, 1),
+            queues=[queue])
 
-    def cl_update(self, queue):
+        self.train_decoders = choose_gemm_batched_plan(
+                BMNK=dec_stack.shape + (1,),
+                #TODO make plan pass alpha as pointer if it is a clbuffer
+                alpha=0.001, # XXX learning rate
+                Xparams=(self.decoded_error, self.decoded_offsets, 1),
+                Yparams=(population.output, self.X_dec_offsets, 1),
+                beta=.9999, # tiny shrinkage
+                Aparams=(self.dec_stack, 0, decshp[1] * decshp[2], decshp[2], 1),
+                queues=[queue],
+                )
+
+        # a mode??
+        self.train_mode = False
+        self.learning_rate = 0.0
+        self.simtime = 0.0
+
+
+    def cl_update(self, queue, dt):
         self.dec_plan()
-        self.enc_plan()
+        self.simtime += dt
+        if self.learning_rate > 0.0:
+            # XXX how to get learning rule hooked up?
+            if len(self.connections) == 3:
+                target = np.asarray([
+                    np.sin(self.simtime * 3),
+                    np.sin(self.simtime * 3) ** 2,
+                    2 * np.sin(self.simtime * 3),
+                    ]).astype('float32')
+            elif len(self.connections) == 1:
+                target = np.asarray([
+                    (2 * np.sin(self.simtime * 3)) ** 2,
+                    ]).astype('float32')
+            else:
+                raise NotImplementedError()
+            queue.flush()
+            self.decoded_error.fill(0)
+            self.target.fill(0)
+            #queue.flush() # necessary?
+            #self.target += cl.array.to_device(queue, target, )
+            #queue.flush() # necessary?
+
+            self.decoded_error += self.target
+            self.decoded_error -= self.decoded
+            print self.decoded_error.get()
+            #self.train_decoders()
+
+        if self.train_mode:
+            self.enc_target()
+        else:
+            self.enc_decoded()
 
 
 def random_low_rank_connection(queue, v1, v2, rank, rng=None, dtype='float32'):
@@ -179,9 +237,9 @@ def random_low_rank_connection(queue, v1, v2, rank, rng=None, dtype='float32'):
     return LowRankConnection(queue, v1, v2, dec, enc)
 
 
-def random_connection(queue, src, dst, rng=np.random):
+def random_encoder(queue, src, dst, rng=np.random):
     W = rng.randn(len(dst), len(src))
-    return FullConnection(queue, src, dst, W)
+    return FullEncoder(queue, src, dst, W)
 
 
 def decoder_encoder_connection(queue, src, dst, func,
@@ -200,9 +258,28 @@ def decoder_encoder_connection(queue, src, dst, func,
 ############################
 
 class Simulator(object):
-    def __init__(self, populations, connections):
-        self.populations = populations
+    def __init__(self, populations, connections, encoders=None):
         self.connections = connections
+        if encoders is None:
+            self.encoders = []
+        else:
+            self.encoders = list(encoders)
+
+        signals = self.signals = []
+        if populations is None:
+            populations = self.populations = []
+            for c in self.connections:
+                if c.src_population not in populations:
+                    populations.append(c.src_population)
+                if c.dst_population not in populations:
+                    populations.append(c.dst_population)
+            for enc in self.encoders:
+                if enc.src not in signals:
+                    signals.append(enc.src)
+                if enc.dst_population not in populations:
+                    populations.append(enc.dst_population)
+        else:
+            self.populations = list(populations)
 
         # compress the set of connections as much as possible
         # TODO: make this a registry or smth
@@ -231,13 +308,13 @@ class Simulator(object):
                 self._conns[LowRankConnection] = [batched] + c_rest
 
     def step(self, queue, n, dt):
-        # XXX use dt
         updates = [p.cl_update for p in self.populations]
+        updates += [p.cl_update for p in self.signals]
         for ctype, clist in self._conns.items():
             updates.extend([c.cl_update for c in clist])
         for i in xrange(n):
             for update in updates:
-                update(queue)
+                update(queue, dt)
         queue.finish()
 
 
@@ -248,7 +325,7 @@ class FuncInput(object):
         val = function(0)
         self.decoded = cl.array.to_device(queue,
                                           np.asarray([val], dtype='float32'))
-        self.population = None
+        self.zero_after = zero_after
 
     @property
     def output(self):
@@ -264,38 +341,9 @@ class FuncInput(object):
     def cl_update(self, queue, dt):
         self.t += dt # TODO: should the dt increment go after?
         if self.zero_after is not None and self.t > self.zero_after:
-            self.decoded.fill(queue, 0.0)
+            self.decoded.fill(0.0, queue=queue)
         else:
-            self.decoded.fill(queue, self.function(self.t))
-
-
-class ConnectionList(object):
-    def __init__(self, connections=None):
-        if connections is None:
-            self.connections = []
-        else:
-            self.connections = connections
-
-    def add(self, connection):
-        self.connections.append(connection) 
-
-    def simulator(self):
-        populations = [None]
-        for c in self.connections:
-            if c.src_population not in populations:
-                populations.append(c.src_population)
-            if c.dst_population not in populations:
-                populations.append(c.dst_population)
-            if populations[-1] is None:
-                populations.pop()
-        # remove the None
-        populations = populations[1:]
-        return Simulator(populations, self.connections)
-
-    def solve_decoder_encoders(self, queue):
-        # -- iterate over connections 
-        # -- some sort of toposort should be used for DAGs right?
-        pass
+            self.decoded.fill(self.function(self.t), queue=queue)
 
 
 class Network(object):
@@ -303,8 +351,9 @@ class Network(object):
         self.name = name
         self.queue = queue
         self.objects = OrderedDict()
-        self.lif_pop = OCL_LIFNeuron(queue, 0)
+        self.lif_pop = OCL_LIFNeuron(queue, 1)
         self.connections = OrderedDict()
+        self.encoders = OrderedDict()
         self.dt = dt
         self.simtime = 0.0
 
@@ -326,20 +375,30 @@ class Network(object):
         src = self.objects[src_name]
         dst = self.objects[dst_name]
         if isinstance(src, FuncInput):
-            conn = random_connection(self.queue, src, dst)
+            conn = random_encoder(self.queue, src, dst)
+            self.encoders[(src_name, dst_name)] = conn
         else:
             conn = decoder_encoder_connection(self.queue, src, dst, func)
-        # TODO: support multiple connections w same src and dst?
-        self.connections[(src_name, dst_name)] = conn
+            self.connections[(src_name, dst_name)] = conn
 
-        # XXX solve decoders right here using self.dt
+    def run_train(self, requested_simtime):
+        n_steps = int(requested_simtime / self.dt)
+        actual_simtime = n_steps * self.dt
+        if rebuild_simulator:
+            self.simulator = Simulator(None,
+                    self.connections.values(),
+                    self.encoders.values())
+        self.simulator.step(self.queue, n_steps, self.dt)
+        self.simtime += actual_simtime
 
     def run(self, requested_simtime, rebuild_simulator=True):
         n_steps = int(requested_simtime / self.dt)
         actual_simtime = n_steps * self.dt
         if rebuild_simulator:
-            connlist = ConnectionList(self.connections.values())
-            self.simulator = connlist.simulator()
+            self.simulator = Simulator(None,
+                    self.connections.values(),
+                    self.encoders.values()
+                    )
         self.simulator.step(self.queue, n_steps, self.dt)
         self.simtime += actual_simtime
 

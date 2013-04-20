@@ -16,9 +16,40 @@ def gemm_batched_check_shapes(a, X, Y, b, Z):
     return B, M, N, K
 
 
-class GemmBatchedPlan(object):
-    def __init__(self, a, X, Y, b, Z):
-        pass
+def ger_batched_ref(context, B, M, N, alpha,
+                             XsM,
+                             YsN,
+                             beta,
+                             Aoffset, AsB, AsM, AsN,
+                            ):
+    return cl.Program(context, """
+        __kernel void fn(
+                         __global const float *X_data,
+                         __global const int *X_offsets,
+                         __global const float *Y_data,
+                         __global const int *Y_offsets,
+                         __global float *A_data
+                         )
+        {
+            const int bb = get_global_id(0);
+
+            A_data += %(Aoffset)s + bb * %(AsB)s;
+            X_data += X_offsets[bb];
+            Y_data += Y_offsets[bb];
+
+            for (int mm = 0; mm < %(M)s; ++mm)
+            {
+                float x = X_data[mm * %(XsM)s];
+                for (int nn = 0; nn < %(N)s; ++nn)
+                {
+                    float a = A_data[nn * %(AsN)s  + mm * %(AsM)s];
+                    float y = Y_data[nn * %(YsN)s];
+                    a = a * %(beta)s + %(alpha)s * x * y;
+                    A_data[nn * %(AsN)s  + mm * %(AsM)s] = a;
+                }
+            }
+        }
+        """ % locals()).build().fn
 
 
 def gemv_batched_ref(context, B, M, N, alpha,
@@ -154,7 +185,7 @@ def gemv_batched_parout_local(context, B, M, N, alpha,
 
 
 
-class GemvBatchedPlan(object):
+class Plan(object):
 
     def __init__(self, dct):
         self.__dict__.update(dct)
@@ -225,4 +256,44 @@ def choose_gemv_batched_plan(
                     Y_buf.data, Y_offsets.data, local_mem)
 
 
-    return GemvBatchedPlan(locals())
+    return Plan(locals())
+
+
+
+def choose_gemm_batched_plan(
+    BMNK, alpha, Xparams, Yparams, beta, Aparams, queues,
+    ):
+    B, M, N, K = BMNK
+    X_buf, X_offsets, XsM = Xparams
+    Y_buf, Y_offsets, YsN = Yparams
+    A_buf, Aoffset, AsB, AsM, AsN = Aparams
+    queue, = queues
+    if np.float32 != A_buf.dtype:
+        raise NotImplementedError('A dtype', A_buf.dtype)
+    if np.float32 != X_buf.dtype:
+        raise NotImplementedError('X dtype', X_buf.dtype)
+    if np.float32 != Y_buf.dtype:
+        raise NotImplementedError('Y dtype', Y_buf.dtype)
+
+    if K == 1:
+        _fn = ger_batched_ref(queue.context,
+            B, M, N,
+            alpha,
+            XsM,
+            YsN,
+            beta,
+            Aoffset, AsB, AsM, AsN,
+            )
+        global_shape = (B,)
+        local_shape = None
+        _fn_args = (queue, global_shape, local_shape,
+                X_buf.data, X_offsets.data,
+                Y_buf.data, Y_offsets.data,
+                A_buf.data,
+                )
+    else:
+        raise NotImplementedError()
+
+    return Plan(locals())
+
+

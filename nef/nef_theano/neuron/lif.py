@@ -133,7 +133,7 @@ class OCL_LIFNeuron(OCL_Neuron):
         self.voltage.set_value(np.zeros(self.size).astype('float32'))
         self.refractory_time.set_value(np.zeros(self.size).astype('float32'))
 
-    def cl_update(self, queue):
+    def cl_update(self, queue, dt):
         self._cl_fn(queue, (self.size,), None,
             self.input_current.data,
             self.voltage.data,
