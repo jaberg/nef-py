@@ -47,7 +47,8 @@ class LIFNeuronView(object):
 
 
 class OCL_LIFNeuron(OCL_Neuron):
-    def __init__(self, queue, size, dt=0.001, tau_rc=0.02, tau_ref=0.002):
+    def __init__(self, queue, size, dt=0.001, tau_rc=0.02, tau_ref=0.002,
+	upsample=2):
         """Constructor for a set of LIF rate neuron.
 
         :param int size: number of neurons in set
@@ -65,39 +66,51 @@ class OCL_LIFNeuron(OCL_Neuron):
         self.input_current = cl.array.to_device(queue,
                 5 * np.random.rand(size).astype('float32'))
 
+	self.tau_rc_inv = 1.0 / tau_rc
+
+        self.upsample = upsample
+        self.upsample_dt = dt / upsample
+	self.upsample_dt_inv = 1.0 / self.upsample_dt
+
         self._cl_fn = cl.Program(queue.context, """
             __kernel void foo(
-                __global const float *J,
+                __global float *J,
                 __global float *voltage,
                 __global float *refractory_time,
-                __global float *output
+                __global char *output
                          )
             {
-                const float dt = %(dt)s;
+                const float dt = %(upsample_dt)s;
+                const float dt_inv = %(upsample_dt_inv)s;
                 const float tau_ref = %(tau_ref)s;
-                const float tau_rc = %(tau_rc)s;
+                const float tau_rc_inv = %(tau_rc_inv)s;
                 const float V_threshold = %(V_threshold)s;
 
                 int gid = get_global_id(0);
                 float v = voltage[gid];
                 float rt = refractory_time[gid];
+                float input_current = J[gid];
+		char spiked = 0;
 
-                  float dV = dt / tau_rc * (J[gid] - v);
+		for (int ii = 0; ii < %(upsample)s; ++ii)
+                {
+                  float dV = dt * tau_rc_inv * (input_current - v);
                   v += dV;
-                  float post_ref = - rt / dt;
+                  float post_ref = - rt * dt_inv;
                   v = v > 0 ?
                       v * (post_ref < 0 ? 0 : post_ref < 1 ? post_ref : 1)
                       : 0;
-                  int spiked = v > V_threshold;
+                  spiked |= v > V_threshold;
                   float overshoot = (v - V_threshold) / dV;
                   float spiketime = dt * (1.0 - overshoot);
 
-                  float new_voltage = v * (1.0 - spiked);
-                  float new_rt = spiked ? spiketime + tau_ref : rt - dt;
+                  v = v * (1.0 - spiked);
+                  rt = spiked ? spiketime + tau_ref : rt - dt;
+                }
 
-                  output[gid] = spiked ? 1.0 : 0.0;
-                  refractory_time[gid] = new_rt;
-                  voltage[gid] = new_voltage;
+                output[gid] = spiked;
+                refractory_time[gid] = rt;
+                voltage[gid] = v;
             }
             """ % self.__dict__).build().foo
 
