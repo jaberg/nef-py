@@ -21,6 +21,13 @@ class LIF_Op(theano.Op):
                 and self.tau_rc == other.tau_rc
                 and self.upsample == other.upsample)
 
+    def __str__(self):
+        return "%s{ref=%s, rc=%s, up=%s}" % (
+            self.__class__.__name__, 
+            self.tau_ref,
+            self.tau_rc,
+            self.upsample)
+
     def make_node(self,
             #alpha, j_bias,
             voltage, refractory_time,
