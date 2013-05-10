@@ -49,6 +49,42 @@ class UnAllocatedOutput(object):
     """Singleton to stand for an un-allocated output """
 
 
+def theano_fn_from_network(network):
+    # dictionary for all variables
+    # and the theano description of how to compute them 
+    updates = OrderedDict()
+
+    # for every node in the network
+    for node in network.nodes.values():
+        # if there is some variable to update
+        if hasattr(node, 'update'):
+            # add it to the list of variables to update every time step
+            updates.update(node.update(network.dt))
+
+    # create graph and return optimized update function
+    # -- use py linker to avoid wasting time compiling C code
+    updates_items = updates.items()
+    fn = theano.function([simulator.simulation_time], [],
+        updates=updates_items, 
+        mode=theano.Mode(
+            optimizer='default',
+            linker=theano.gof.vm.VM_Linker(use_cloop=False, allow_gc=False),
+            ))
+    return fn
+
+
+def concat_lif_populations(ifs):
+    for node in ifs.nodes:
+        if isinstance(node.op, lif.LIF_Op):
+            print node.op
+            for vv in node.inputs:
+                print vv, dir(ifs.meta[vv])
+
+
+def concat_connections(ifs):
+    pass
+
+
 class SimulatorOCL(object):
     """
     Simulator that uses OpenCL instead of numpy to evaluate the Theano "step"
@@ -62,6 +98,7 @@ class SimulatorOCL(object):
         if self.network.tick_nodes:
             raise ValueError('Simulator does not support',
                              ' networks with tick_nodes')
+
         if context is None:
             context = cl.create_some_context()
         self.context = context
@@ -73,32 +110,13 @@ class SimulatorOCL(object):
         else:
             self.queue = cl.CommandQueue(context)
 
-        # dictionary for all variables
-        # and the theano description of how to compute them 
-        updates = OrderedDict()
-
-        # for every node in the network
-        for node in self.network.nodes.values():
-            # if there is some variable to update
-            if hasattr(node, 'update'):
-                # add it to the list of variables to update every time step
-                updates.update(node.update(self.network.dt))
-
-        # create graph and return optimized update function
-        # -- use py linker to avoid wasting time compiling C code
-        updates_items = updates.items()
-        self.step = theano.function([simulator.simulation_time], [],
-            updates=updates_items, 
-            mode=theano.Mode(
-                optimizer='default',
-                linker=theano.gof.vm.VM_Linker(use_cloop=False, allow_gc=False),
-                ))
-
-        # -- replace the theano function with a new list of thunks
-        self.nodes = self.step.fn.nodes
+        self.step = theano_fn_from_network(network)
+        ifs = simulator.IFS(self.step)
+        self.ifs = ifs
 
         # -- allocate two plans and vars for double-buffered updates
-        self.n_steps = -1
+        self.n_steps = -1  # -- how many steps of dt in total have we done?
+        # -- XXX misnomber: n_steps should be last_step
         self._plans = ([], [])
         self._ocl_vars = ({}, {})
         self.constant_vars = {}
@@ -109,30 +127,34 @@ class SimulatorOCL(object):
             cl.array.zeros(self.queue, (), dtype='float32'),
         ]
 
+        for vv in ifs.variables:
+            ifs.meta[vv].ocl0 = UnAllocatedOutput
+            ifs.meta[vv].ocl1 = UnAllocatedOutput
+            ifs.meta[vv].const_val = UnAllocatedOutput
 
         # -- allocate workspace for the first plan (plan 0)
-        self.ocl_vars = self._ocl_vars[0]
-        for node in self.nodes:
+        for node in self.ifs.nodes:
             for vv in node.inputs:
-                if vv in self._ocl_vars[0]:
-                    continue
-                if vv in self.constant_vars:
+                if not (ifs.meta[vv].ocl0 is UnAllocatedOutput
+                    and ifs.meta[vv].const_val is UnAllocatedOutput):
                     continue
                 if hasattr(vv, 'data'):
-                    self.constant_vars[vv] = vv.data
+                    self.ifs.meta[vv].const_val = vv.data
                 elif vv.name == 'simulation_time':
-                    self._ocl_vars[0][vv] = self._simtime[0]
+                    self.ifs.meta[vv].ocl0 = self._simtime[0]
                 elif vv.owner is None:
                     val = vv.get_value(borrow=True)
-                    self._ocl_vars[0][vv] = to_device(self.queue, val)
-                    self.queue.finish()
+                    self.ifs.meta[vv].ocl0 = to_device(self.queue, val)
             ocl_alloc[type(node.op)](self.queue, self, node)
             for vout in node.outputs:
-                if vout in self._ocl_vars[0]:
-                    assert self._ocl_vars[0][vout].ndim == vout.ndim, node.op
-                    assert self._ocl_vars[0][vout].dtype == vout.dtype, node.op
+                assert (ifs.meta[vout].ocl0 is not UnAllocatedOutput
+                    or ifs.meta[vout].const_val is not UnAllocatedOutput)
+                if ifs.meta[vout].ocl0 is not UnAllocatedOutput:
+                    assert ifs.meta[vout].ocl0.ndim == vout.ndim, node.op
+                    assert ifs.meta[vout].ocl0.dtype == vout.dtype, node.op
                 else:
-                    assert vout in self.constant_vars
+                    assert self.ifs.meta[vout].const_val is not None
+        self.queue.finish()
 
         # -- set up the outputs from plan 0 as the inputs for plan 1
         # -- and the outputs from plan 1 as the inputs for plan 0
@@ -162,7 +184,7 @@ class SimulatorOCL(object):
 
         # -- allocate workspace for the second plan (plan 1)
         self.ocl_vars = self._ocl_vars[1]
-        for node in self.nodes:
+        for node in self.ifs.nodes:
             for vv in node.inputs:
                 if vv in self._ocl_vars[1]:
                     continue
@@ -185,8 +207,12 @@ class SimulatorOCL(object):
         del self.ocl_vars
 
 
+        # -- optimize the ifs graph
+        concat_lif_populations(self.ifs)
+        concat_connections(self.ifs)
+
         # -- build plans for evaluating ocl_vals[0]
-        for node in self.nodes:
+        for node in self.ifs.nodes:
             self.ocl_vars = self._ocl_vars[0]
             plans = ocl_perform[type(node.op)](self.queue, self, node)
             for plan in plans:
@@ -195,7 +221,7 @@ class SimulatorOCL(object):
             self._node_plans[0][node] = plans
 
         # -- build plans for evaluating ocl_vals[0]
-        for node in self.nodes:
+        for node in self.ifs.nodes:
             self.ocl_vars = self._ocl_vars[1]
             self.ocl_vars = self._ocl_vars[1]
             plans = ocl_perform[type(node.op)](self.queue, self, node)

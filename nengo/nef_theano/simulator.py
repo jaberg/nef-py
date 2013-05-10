@@ -1,4 +1,4 @@
-
+import copy
 from _collections import OrderedDict
 import theano
 import numpy as np
@@ -24,7 +24,53 @@ class MapGemv(theano.Op):
 
 map_gemv = MapGemv()
 
+
+class IFS(object):
+    """
+    Iteratable Function System
+
+    Like "FunctionGraph" in Theano, except that it is is designed around
+    updates, so the number of inputs and outputs can actually change.
+    """
+    def __init__(self, fn):
+        self.updates = fn.fn.updated_vars.items()
+        self._nodes = fn.fn.nodes
+        self.dag = None # networkx ?
+        self.meta = {}
+        for node in self._nodes:
+            for vv in node.inputs + node.outputs:
+                self.meta.setdefault(vv, copy.copy(vv.tag))
+
+    def add_update(self, in_expr, out_expr):
+        if in_expr.owner:
+            raise ValueError(in_expr)
+        self.updates.append((in_expr, out_expr))
+
+    def replace(self, old_v, new_v):
+        raise NotImplementedError()
+
+    @property
+    def nodes(self):
+        return self._nodes
+
+    @property
+    def variables(self):
+        tmp = []
+        for node in self._nodes:
+            tmp.extend(node.inputs)
+            tmp.extend(node.outputs)
+        seen = set()
+        rval = []
+        for vv in tmp:
+            if vv not in seen:
+                rval.append(vv)
+            seen.add(vv)
+        return rval
+
+
 simulation_time = theano.tensor.fscalar(name='simulation_time')
+
+scribe_buf_last_filled = theano.tensor.iscalar(name='scribe_buf_last_filled')
 
 
 class Simulator(object):
