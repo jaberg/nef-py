@@ -24,6 +24,29 @@ class Array(cl.array.Array):
         self.offset = offset
         assert self.data.size >= self.size * self.dtype.itemsize
 
+    def __getitem__(self, item):
+        shape = list(self.shape)
+        strides = list(self.strides)
+        offset = self.offset
+        if isinstance(item, (list, tuple)):
+            for ii, idx in enumerate(item):
+                if isinstance(idx, int):
+                    raise NotImplementedError()
+                elif isinstance(idx, slice):
+                    start, stop, stride = idx.indices(shape[ii])
+                    offset += start * strides[ii]
+                    if stride != 1:
+                        raise NotImplementedError()
+                    shape[ii] = stop - start
+            return self.__class__(
+                    self.queue, shape, self.dtype,
+                    data=self.data,
+                    strides=strides,
+                    offset=offset)
+        else:
+            raise NotImplementedError(item)
+
+
     @property
     def itemstrides(self):
         rval = []
