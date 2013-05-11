@@ -6,10 +6,10 @@ import time
 from nengo import nef_theano as nef
 from nengo.nef_theano.simulator import Simulator
 
-try:
-    from nengo.nef_theano.simulator_concat import SimulatorConcat
-except ImportError:
-    pass
+#try:
+from nengo.nef_theano.simulator_concat import SimulatorConcat
+#except ImportError:
+#    pass
 
 try:
     from nengo.nef_theano.simulator_ocl import SimulatorOCL
@@ -40,11 +40,12 @@ approx_time = 1.0 # second
 
 if 1:
     start_time = time.time()
+    net.run(0.001) # build the thing
     print "starting simulation (net.run)"
     net.run(approx_time)
     print "runtime: ", time.time() - start_time, "seconds"
 
-if 0:
+if 1:
     sim = Simulator(net)
     start_time = time.time()
     print "starting simulation (Simulator)"

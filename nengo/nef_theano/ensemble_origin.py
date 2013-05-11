@@ -175,6 +175,7 @@ class EnsembleOrigin(Origin):
 
         self.decoders = theano.shared(decoders.astype('float32'), 
             name='ensemble_origin.decoders')
+        self.decoders.tag.const_shape = decoders.shape
         return target_values.shape[0]
 
     def make_samples(self):

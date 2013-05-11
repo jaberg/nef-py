@@ -52,6 +52,36 @@ map_gemv = MapGemv(False)
 
 simulation_time = theano.tensor.fscalar(name='simulation_time')
 
+class MiscGemv(theano.Op):
+    def __init__(self ):
+        self.destroy_map = {}
+
+    def __hash__(self):
+        return hash((type(self), len(self.destroy_map)))
+
+    def __eq__(self, other):
+        return (type(self) == type(other)
+                and self.destroy_map == other.destroy_map)
+
+    def make_node(self, alpha, A, X, Xi, beta, J):
+        inputs = map(theano.tensor.as_tensor_variable,
+            [alpha, A, X, Xi, beta, J])
+        return theano.Apply(self, inputs, [inputs[-1].type()])
+
+    def infer_shape(self, node, ishapes):
+        return [ishapes[-1]]
+
+    def perform(self, node, inputs, outstor):
+        alpha, A, X, Xi, beta, J = inputs
+
+        if not self.destroy_map:
+            J = J.copy()
+
+        J *= beta
+        for i, xi in enumerate(Xi):
+            J[i] += alpha * np.dot(X[xi], A[i].T)
+        outstor[0][0] = J
+
 
 class Simulator(object):
     def __init__(self, network):
