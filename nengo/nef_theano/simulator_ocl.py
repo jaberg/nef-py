@@ -17,6 +17,7 @@ import pyopencl as cl
 import simulator
 
 from ocl.array import to_device
+from ocl.plan import Plan
 import theano.tensor.inplace
 
 ocl_alloc = {}
@@ -262,11 +263,17 @@ class SimulatorOCL(object):
 
         # -- build plans for evaluating ocl_vals[0]
         for node in self.ifs.nodes:
-            plans = ocl_perform[type(node.op)](self.queue, self.ifs, node)
-            if plans is None:
+            if not all(UnAllocatedOutput is oval
+                    for oval in ifs_arrays(self.ifs, node.outputs)):
+                plans = ocl_perform[type(node.op)](self.queue, self.ifs, node)
+                if plans is None:
+                    plans = []
+                elif isinstance(plans, Plan):
+                    plans = [plans]
+                for plan in plans:
+                    plan.node = node
+            else:
                 plans = []
-            for plan in plans:
-                plan.node = node
             self.plans.extend(plans)
             self._node_plans[node] = plans
 
@@ -377,13 +384,11 @@ class SimulatorOCL(object):
         dt = self.network.dt
 
         if self.profiling:
+            plans = self.plans
             for i in xrange(N):
-                self.n_steps += 1
                 evs = []
-                plans = self.plans
-                self._simtime.set(
-                    np.asarray((self.n_steps + i * 2) * dt, dtype='float32'),
-                    queue=self.queue)
+                simtime = (self.n_steps + i) * dt
+                self._simtime.fill(simtime, queue=self.queue)
                 for p in plans:
                     evs.append(p._fn(*p._fn_args))
                 self.queue.finish()
@@ -391,6 +396,7 @@ class SimulatorOCL(object):
                 for e, p in zip(evs, plans):
                     self.t_used.setdefault(p.node, 0)
                     self.t_used[p.node] +=  e.profile.end - e.profile.start
+            self.n_steps += N
         else:
             queues = [p._enqueue_args[0] for p in self.plans]
             kerns = [p._enqueue_args[1] for p in self.plans]
@@ -406,10 +412,8 @@ class SimulatorOCL(object):
                 # XXX Also update any other kernel_args that are pointing
                 # to those buffers.
                 for i in xrange(N):
-                    simtime = (self.n_steps + i * 2) * dt
-                    self._simtime.set(
-                        np.asarray(simtime, dtype='float32'),
-                        queue=self.queue)
+                    simtime = (self.n_steps + i) * dt
+                    self._simtime.fill(simtime, queue=self.queue)
                     map(cl.enqueue_nd_range_kernel,
                         queues, kerns, gsize, lsize)
                 self.n_steps += N

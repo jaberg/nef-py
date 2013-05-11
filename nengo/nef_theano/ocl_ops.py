@@ -15,6 +15,7 @@ from simulator_ocl import (alloc,
                           )
 from ocl.array import Array, to_device, empty
 from ocl.gemv_batched import plan_map_gemv
+from ocl.gemv_batched import plan_misc_gemv
 from ocl.dot import plan_dot
 from ocl.plan import Plan
 from ocl.elemwise import plan_elemwise
@@ -148,7 +149,33 @@ def inc_subtensor_a(queue, ifs, node):
 
 @perform(theano.tensor.basic.IncSubtensor)
 def inc_subtensor_p(queue, ifs, node):
-    raise NotImplementedError()
+    X, A = ifs_arrays(ifs, node.inputs)
+    Xc, Ac = ifs_consts(ifs, node.inputs)
+    Y, = ifs_arrays(ifs, node.outputs)
+    if X is UnAllocatedOutput:
+        return plan_elemwise(queue,
+                "$OUT_0 = $IN_0 + $IN_1;", 
+                [ifs.meta[node.outputs[0]].Xorig, A],
+                [Y.__getitem__(node.op.idx_list)])
+    else:
+        return plan_elemwise(queue,
+                "$OUT_0 = $IN_0 + $IN_1;", 
+                [X.__getitem__(node.op.idx_list), A],
+                [Y.__getitem__(node.op.idx_list)])
+
+
+@alloc(theano.tensor.opt.MakeVector)
+def make_vector_a(queue, ifs, node):
+    inputs = ifs_consts(ifs, node.inputs)
+    if UnAllocatedOutput in inputs:
+        theano.printing.debugprint(node.outputs)
+        raise NotImplementedError('non-constant MakeVector')
+    ifs_set_consts(ifs, node.outputs, [np.asarray(inputs)])
+
+
+@perform(theano.tensor.opt.MakeVector)
+def make_vector_p(queue, sim, node):
+    return []
 
 
 @alloc(simulator.MapGemv)
@@ -200,22 +227,44 @@ def map_gemv_p(queue, ifs, node):
 def misc_gemv_a(queue, ifs, node):
     return map_gemv_a(queue, ifs, node)
 
+
 @perform(simulator.MiscGemv)
 def misc_gemv_p(queue, ifs, node):
-    raise NotImplementedError()
+    alpha, A, X, Xi, beta, Y_in = ifs_arrays(ifs, node.inputs)
+    Y_out, = ifs_arrays(ifs, node.outputs)
 
-@alloc(theano.tensor.opt.MakeVector)
-def make_vector_a(queue, ifs, node):
-    inputs = ifs_consts(ifs, node.inputs)
-    if UnAllocatedOutput in inputs:
-        theano.printing.debugprint(node.outputs)
-        raise NotImplementedError('non-constant MakeVector')
-    ifs_set_consts(ifs, node.outputs, [np.asarray(inputs)])
+    # XXX: following depends on constants alpha, beta
+    falpha = float(node.inputs[0].data)
+    fbeta = float(node.inputs[4].data)
 
+    if Xi is UnAllocatedOutput:
+        Xi = to_device(queue, ifs.meta[node.inputs[3]].const_val)
+    
+    B, M, N = A.shape
+    Bx, Nx = X.shape
+    if N != Nx:
+        theano.printing.debugprint(node.inputs[1])
+        theano.printing.debugprint(node.inputs[2])
+        raise ValueError('shape mismatch', (A.shape, X.shape))
+    By, My = Y_out.shape
+    Bxi, = Xi.shape
+    assert Bxi == By == B
+    assert My == M
 
-@perform(theano.tensor.opt.MakeVector)
-def make_vector_p(queue, sim, node):
-    return []
+    #A_offsets = to_device(queue, np.arange(B) * M * N )
+    #X_offsets = to_device(queue, np.arange(B) * N )
+    #Y_offsets = to_device(queue, np.arange(B) * M)
+
+    if Y_in is UnAllocatedOutput:
+        Y_in = None
+        Y_in_val = ifs.meta[node.inputs[-1]].const_val
+        if np.all(Y_in_val == 0):
+            fbeta = 0
+        elif fbeta != 0:
+            Y_in = to_device(queue, np.asarray(Y_in_val * fbeta))
+            fbeta = 1
+
+    return [plan_misc_gemv(queue, falpha, A, X, Xi, fbeta, Y_out, Y_in)]
 
 
 @alloc(theano.tensor.basic.Reshape)
@@ -280,8 +329,7 @@ def subtensor_a(queue, ifs, node):
 
 @perform(theano.tensor.basic.Subtensor)
 def subtensor_p(queue, sim, node):
-    raise NotImplementedError()
-
+    return []
 
 
 def flatten_c_contig(Xval):
