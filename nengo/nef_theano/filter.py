@@ -22,7 +22,7 @@ class Filter:
         if source is not None and hasattr(source, 'get_value'):
             value = source.get_value()
             if shape is not None:
-                assert value.shape == shape
+                assert value.shape == shape, (value, value.shape, shape)
             if name is None: 
                 name = 'filtered_%s' % source.name
         elif shape is not None:

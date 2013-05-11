@@ -247,10 +247,14 @@ class Network(object):
             index_pre=index_pre,
             index_post=index_post, 
             transform=transform)
-    
-        # apply transform matrix, directing pre dimensions
-        # to specific post dimensions
-        decoded_output = TT.dot(transform, pre_output)
+
+        transform = np.asarray(transform)
+        if transform.size == 1 and np.all(transform == 1):
+            decoded_output = pre_output.dimshuffle('x', *range(pre_output.ndim))
+        else:
+            # apply transform matrix, directing pre dimensions
+            # to specific post dimensions
+            decoded_output = TT.dot(transform, pre_output)
 
         # pass in the pre population decoded output function
         # to the post population, connecting them for theano

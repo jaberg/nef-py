@@ -21,7 +21,6 @@ from ocl.plan import Plan
 import theano.tensor.inplace
 
 ocl_alloc = {}
-ocl_post_alloc_transforms = []
 ocl_perform = {}
 
 
@@ -116,7 +115,10 @@ def ifs_alloc(ifs, queue):
                 ifs.meta[vv].const_val = vv.data
             elif vv.owner is None:
                 val = vv.get_value(borrow=True)
-                ifs.meta[vv].ocl0 = to_device(queue, val)
+                if vv in ifs.fn.fn.updated_vars:
+                    ifs.meta[vv].ocl0 = to_device(queue, val)
+                else:
+                    ifs.meta[vv].const_val = val
         ocl_alloc[type(node.op)](queue, ifs, node)
         for vout in node.outputs:
             assert (ifs.meta[vout].ocl0 is not UnAllocatedOutput
@@ -135,6 +137,7 @@ def ifs_alloc(ifs, queue):
     #    round of computation.
     for ivar, ovar in ifs.updates:
         assert ifs.meta[ivar].ocl0 is ifs.meta[ovar].ocl0
+
     queue.finish()
 
 
@@ -256,10 +259,6 @@ class SimulatorOCL(object):
             if vv.name == 'simulation_time':
                 self.ifs.meta[vv].ocl0 = self._simtime
         ifs_alloc(self.ifs, self.queue)
-
-        # -- optimize the ifs graph
-        for fn in ocl_post_alloc_transforms:
-            fn(self.ifs)
 
         # -- build plans for evaluating ocl_vals[0]
         for node in self.ifs.nodes:

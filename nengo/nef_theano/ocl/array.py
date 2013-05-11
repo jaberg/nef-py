@@ -46,6 +46,12 @@ class Array(cl.array.Array):
         else:
             raise NotImplementedError(item)
 
+    def same_view_as(self, other):
+        return ( self.data is other.offset
+                and self.offset == other.offset
+                and self.strides == other.strides
+                and self.shape == other.shape
+                and self.dtype == other.dtype)
 
     @property
     def itemstrides(self):

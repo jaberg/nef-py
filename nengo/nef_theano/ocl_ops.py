@@ -5,14 +5,15 @@ import theano.tensor
 import pyopencl as cl
 
 import simulator
-from simulator_ocl import (alloc,
-                           perform,
-                           ifs_arrays,
-                           ifs_consts,
-                           ifs_set_arrays,
-                           ifs_set_consts,
-                           UnAllocatedOutput,
-                          )
+from simulator_ocl import (
+    alloc,
+    perform,
+    ifs_arrays,
+    ifs_consts,
+    ifs_set_arrays,
+    ifs_set_consts,
+    UnAllocatedOutput,
+    )
 from ocl.array import Array, to_device, empty
 from ocl.gemv_batched import plan_map_gemv
 from ocl.gemv_batched import plan_misc_gemv
@@ -92,28 +93,34 @@ def dimshuffle_a(queue, ifs, node):
     # XXX make sure that dimshuffle is inplace
     Xvar, = node.inputs
     X = ifs.meta[Xvar].ocl0
-    Yvar, = node.outputs
+    if X is UnAllocatedOutput:
+        Xval = ifs.meta[Xvar].const_val
+        outputs = [[None]]
+        node.op.perform(node, [Xval], outputs)
+        ifs_set_consts(ifs, node.outputs, outputs[0][0])
+    else:
+        Yvar, = node.outputs
 
-    Yshape = list(X.shape)
-    Ystrides = list(X.strides)
+        Yshape = list(X.shape)
+        Ystrides = list(X.strides)
 
-    # -- drop
-    for drop in reversed(node.op.drop):
-        Yshape.pop(drop)
-        Ystrides.pop(drop)
+        # -- drop
+        for drop in reversed(node.op.drop):
+            Yshape.pop(drop)
+            Ystrides.pop(drop)
 
-    # -- transpose
-    Yshape = [Yshape[i] for i in node.op.shuffle]
-    Ystrides = [Ystrides[i] for i in node.op.shuffle]
+        # -- transpose
+        Yshape = [Yshape[i] for i in node.op.shuffle]
+        Ystrides = [Ystrides[i] for i in node.op.shuffle]
 
-    # -- augment
-    for augm in node.op.augment:
-        Yshape.insert(augm, 1)
-        Ystrides.insert(augm, X.dtype.itemsize)
+        # -- augment
+        for augm in node.op.augment:
+            Yshape.insert(augm, 1)
+            Ystrides.insert(augm, X.dtype.itemsize)
 
-    Y = Array(queue, data=X.data, dtype=X.dtype,
-              shape=Yshape, strides=Ystrides)
-    ifs.meta[Yvar].ocl0 = Y
+        Y = Array(queue, data=X.data, dtype=X.dtype,
+                  shape=Yshape, strides=Ystrides)
+        ifs.meta[Yvar].ocl0 = Y
 
 
 @perform(theano.tensor.elemwise.DimShuffle)
@@ -146,22 +153,37 @@ def inc_subtensor_a(queue, ifs, node):
         Y = in_vars[0].empty_like()
         ifs_set_arrays(ifs, node.outputs, [Y])
 
+#@back_alloc(theano.tensor.basic.IncSubtensor)
+def inc_subtensor_ba(queue, ifs, node):
+    Y, = ifs_arrays(ifs, node.outputs)
+    X, A = ifs_arrays(ifs, node.inputs)
+    if node.op.set_instead_of_inc:
+        if A is not UnAllocatedOutput:
+            YA = Y.__getitem__(node.op.idx_list)
+            ifs.meta[node.inputs[1]].ocl0 = YA
 
 @perform(theano.tensor.basic.IncSubtensor)
 def inc_subtensor_p(queue, ifs, node):
     X, A = ifs_arrays(ifs, node.inputs)
     Xc, Ac = ifs_consts(ifs, node.inputs)
     Y, = ifs_arrays(ifs, node.outputs)
-    if X is UnAllocatedOutput:
-        return plan_elemwise(queue,
-                "$OUT_0 = $IN_0 + $IN_1;", 
-                [ifs.meta[node.outputs[0]].Xorig, A],
-                [Y.__getitem__(node.op.idx_list)])
+    YA = Y.__getitem__(node.op.idx_list)
+    if node.op.set_instead_of_inc:
+        if A.same_view_as(YA):
+            return []
+        body = "$OUT_0 = $IN_0;"
+        if X is UnAllocatedOutput:
+            return plan_elemwise(queue, body, [A], [YA])
+        else:
+            return plan_elemwise(queue, body, [A], [YA])
     else:
-        return plan_elemwise(queue,
-                "$OUT_0 = $IN_0 + $IN_1;", 
-                [X.__getitem__(node.op.idx_list), A],
-                [Y.__getitem__(node.op.idx_list)])
+        body = "$OUT_0 = $IN_0 + $IN_1;"
+        if X is UnAllocatedOutput:
+            return plan_elemwise(queue, body, 
+                    [ifs.meta[node.outputs[0]].Xorig, A], [YA])
+        else:
+            return plan_elemwise(queue, body, 
+                    [X.__getitem__(node.op.idx_list), A], [YA])
 
 
 @alloc(theano.tensor.opt.MakeVector)
@@ -239,6 +261,9 @@ def misc_gemv_p(queue, ifs, node):
 
     if Xi is UnAllocatedOutput:
         Xi = to_device(queue, ifs.meta[node.inputs[3]].const_val)
+
+    if A is UnAllocatedOutput:
+        A = to_device(queue, ifs.meta[node.inputs[1]].const_val)
     
     B, M, N = A.shape
     Bx, Nx = X.shape

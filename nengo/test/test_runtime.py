@@ -4,16 +4,18 @@ import math
 import time
 import unittest
 
+import nose
 from nengo import nef_theano as nef
 from nengo.nef_theano.simulator import Simulator
 
 # -- XXX rename to an optimization file
 from nengo.nef_theano.simulator_concat import SimulatorConcat
 
-try:
-    from nengo.nef_theano.simulator_ocl import SimulatorOCL
-except ImportError:
-    pass
+from nengo.nef_theano.simulator_ocl import SimulatorOCL
+from nengo.nef_theano.simulator_ea import SimulatorEA
+#try:
+#except ImportError:
+#    pass
 
 approx_time = 1.0 # second
 
@@ -43,9 +45,9 @@ class Runtime(unittest.TestCase):
         self.net = net
 
     def test_run(self):
-        start_time = time.time()
         self.net.run(0.001) # build the thing
         print "starting simulation (net.run)"
+        start_time = time.time()
         self.net.run(approx_time)
         print "runtime: ", time.time() - start_time, "seconds"
 
@@ -53,6 +55,20 @@ class Runtime(unittest.TestCase):
         sim = Simulator(self.net)
         start_time = time.time()
         print "starting simulation (Simulator)"
+        sim.run(approx_time)
+        print "runtime: ", time.time() - start_time, "seconds"
+
+    def test_simulator_ea(self):
+        sim = SimulatorEA(self.net)
+        start_time = time.time()
+        print "starting simulation (SimulatorConcat)"
+        sim.run(approx_time)
+        print "runtime: ", time.time() - start_time, "seconds"
+
+    def test_simulator_concat(self):
+        sim = SimulatorConcat(self.net)
+        start_time = time.time()
+        print "starting simulation (SimulatorConcat)"
         sim.run(approx_time)
         print "runtime: ", time.time() - start_time, "seconds"
 

@@ -16,12 +16,12 @@ from theano.compile import optdb
 from theano.gof.opt import Optimizer
 from theano.tensor import Subtensor
 from theano.tensor import Join
-from theano.tensor import inc_subtensor
+from theano.tensor import set_subtensor
 from theano.tensor import patternbroadcast
 from theano.gof import local_optimizer
 from theano.tensor.opt import register_canonicalize
 
-@register_canonicalize
+#@register_canonicalize
 @local_optimizer()
 def local_join_to_set_subtensors(node):
     if not isinstance(node.op, Join):
@@ -66,7 +66,7 @@ def local_join_to_set_subtensors(node):
     offset = 0
     for vv in node.inputs[1:]:
         len_i = shape_of(vv)[axis]
-        new_host = inc_subtensor(new_host[offset: offset + len_i], 
+        new_host = set_subtensor(new_host[offset: offset + len_i], 
                                  vv)
         offset += len_i
     if new_host.broadcastable != node.outputs[0].broadcastable:
@@ -95,16 +95,17 @@ class LIF_Concat(Optimizer):
     """
     Merge multiple populations of LIF neurons
     """
-    def apply(self, fgraph):
-        lifs = [node for node in fgraph.toposort()
+    @staticmethod
+    def suggest_repl(nodes, shape_fn, do_eval=False):
+        lifs = [node for node in nodes
                 if isinstance(node.op, lif.LIF_Op)]
         if len(lifs) < 2:
-            return
+            return [], [], []
 
         tau_rcs = [node.op.tau_rc for node in lifs]
         tau_refs = [node.op.tau_ref for node in lifs]
         upsamples = [node.op.upsample for node in lifs]
-        dts = [node.inputs[-1] for node in lifs]
+        dts = [float(node.inputs[-1].data) for node in lifs]
 
         if len(set(tau_rcs)) > 1:
             raise NotImplementedError('multiple tau_rcs')
@@ -113,17 +114,15 @@ class LIF_Concat(Optimizer):
         if len(set(upsamples)) > 1:
             raise NotImplementedError('multiple upsamples')
         if len(set(dts)) > 1:
-            raise NotImplementedError('multiple dts')
+            raise NotImplementedError('multiple dts', dts)
 
-        getconst = theano.tensor.get_scalar_constant_value
-        shape_of = fgraph.shape_feature.shape_of
-
-        shapes = [[map(int, map(getconst, shape_of[vv]))
-                   for vv in node.outputs]
-            for node in lifs]
+        shapes = [map(shape_fn, node.outputs) for node in lifs]
 
         #sizes = [map(np.prod, shape) for shape in shapes]
 
+        repls = []
+        new_updates = []
+        del_updates = []
         if all(shape[0][0] == 1 for shape in shapes):
             v = theano.tensor.concatenate(
                 [node.inputs[0] for node in lifs])
@@ -132,20 +131,44 @@ class LIF_Concat(Optimizer):
                 [node.inputs[1] for node in lifs])
 
             ic = theano.tensor.concatenate(
-                [node.inputs[1] for node in lifs])
+                [node.inputs[2] for node in lifs])
 
             dt = lifs[0].inputs[-1]
 
-            new_v, new_rt, new_spiked = lifs[0].op(v, rt, ic, dt)
+            if do_eval:
+                v = theano.shared(v.eval())
+                rt = theano.shared(rt.eval())
 
-            repls = []
+            new_v, new_rt, new_spiked = lifs[0].op(v, rt, ic, dt)
+            print 'creating 1', new_v.owner
+            print 'to replace', len(lifs)
+
             for ii, node in enumerate(lifs):
                 repls.append((node.outputs[0], new_v[ii:ii + 1]))
                 repls.append((node.outputs[1], new_rt[ii:ii + 1]))
                 repls.append((node.outputs[2], new_spiked[ii:ii + 1]))
-            fgraph.replace_all_validate(repls, reason='LIF_Concat')
+                del_updates.extend(node.inputs[:2])
+
+            new_updates.extend([(v, new_v), (rt, new_rt)])
         else:
-            raise NotImplementedError()
+            return [], [], []
+        return repls, new_updates, del_updates
+
+    def apply(self, fgraph):
+
+        getconst = theano.tensor.get_scalar_constant_value
+        shape_of = fgraph.shape_feature.shape_of
+
+        def shape_fn(vv):
+            def gc(x):
+                try:
+                    return getconst(x)
+                except theano.tensor.NotScalarConstantError:
+                    return x.eval()
+            return map(int, map(gc, shape_of[vv]))
+
+        repls, _, _ = self.suggest_repl(fgraph.toposort(), shape_fn)
+        fgraph.replace_all_validate(repls, reason='LIF_Concat')
 
 
 class MapGemv_Concat(Optimizer):
@@ -261,10 +284,12 @@ class MapGemv_Concat(Optimizer):
                 fgraph.replace_all_validate(repl, reason="MapGemv_Concat")
 
 
+# -- take these out of fast_run
+#    and XXX add a custom optimizer below with a query that includes nengo
 optdb['canonicalize'].register('LIF_Concat', LIF_Concat(),
-                               'fast_run', 'nengo')
+                               'nengo')
 optdb['canonicalize'].register('MapGemv_Concat', MapGemv_Concat(),
-                               'fast_run', 'nengo')
+                               'nengo')
 
 
 
@@ -288,16 +313,73 @@ class SimulatorConcat(simulator.Simulator):
                 # add it to the list of variables to update every time step
                 updates.update(node.update(self.network.dt))
 
+        outputs = updates.values()
+        inputs = theano.gof.graph.inputs(updates.keys() + outputs)
+        memo = theano.gof.graph.clone_get_equiv(inputs, outputs,
+                copy_inputs_and_orphans=False)
+        #inv_memo = dict([(v, k) for k, v in memo.items()])
+        def shape_fn(vv):
+            return vv.owner.inputs[0].get_value(borrow=True).shape
+
+        def order_from_updates(updates):
+            outputs = updates.values()
+            inputs = theano.gof.graph.inputs(updates.keys() + outputs)
+            order = theano.gof.graph.io_toposort(inputs, outputs)
+            return order
+
+        c_outputs = [memo[v] for v in outputs]
+        c_inputs = [memo[v] for v in inputs]
+        c_updates = OrderedDict()
+        for ivar, ovar in updates.items():
+            c_updates[memo[ivar]] = memo[ovar]
+        print 'starting with',  len([
+            n for n in order_from_updates(c_updates)
+            if isinstance(n.op, lif.LIF_Op)])
+        order = theano.gof.graph.io_toposort(c_inputs, c_outputs)
+        repl, new_updates, del_updates = LIF_Concat.suggest_repl(
+                order, shape_fn, do_eval=True)
+        for old, new in repl:
+            for node in order:
+                for ii, ivar in enumerate(node.inputs):
+                    if ivar == old:
+                        node.inputs[ii] = new
+            for key, val in c_updates.items():
+                if val == old:
+                    c_updates[key] = new
+
+        to_go = set()
+
+        for du in del_updates:
+            print 'deleting', du
+            to_go.add(du.owner)
+            assert du in c_updates
+            del c_updates[du]
+            assert du not in c_updates
+            
+        print 'remaining:',  len([
+            n for n in order_from_updates(c_updates)
+            if isinstance(n.op, lif.LIF_Op)])
+        print c_updates.keys()
+        print c_updates.values()
+        #for ivar, ovar in new_updates:
+        #    c_updates[ivar] = ovar
+        # -- assert that the stuff is gone
+        order = order_from_updates(c_updates)
+        for old, new in repl:
+            for node in order:
+                assert node not in to_go
+
+
         # create graph and return optimized update function
         self.step = theano.function([simulator.simulation_time], [],
-                                    updates=updates.items())
+                                    updates=c_updates.items())
 
 
     def run_steps(self, N):
-        fn = self.ifs.fn
+        step = self.step
         for i in xrange(N):
             simulation_time = self.simulation_steps * self.network.dt
-            fn(simulation_time)
+            step(simulation_time)
             self.simulation_steps += 1
 
 

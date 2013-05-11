@@ -169,16 +169,18 @@ class Ensemble:
         """
         # make sure one and only one of
         # (decoded_input, encoded_input) is specified
-        if decoded_input is not None: assert (encoded_input is None)
-        elif encoded_input is not None: assert (decoded_input is None) 
+        if decoded_input is not None:
+            assert (encoded_input is None)
+        elif encoded_input is not None:
+            assert (decoded_input is None) 
         else: assert False
 
         if decoded_input: 
-            if self.mode is not 'direct': 
+            if self.mode is not 'direct' and self.radius != 1: 
                 # rescale decoded_input by this neuron's radius
                 source = TT.true_div(decoded_input, self.radius)
-            # ignore radius in direct mode
-            else: source = decoded_input
+            else:
+                source = decoded_input
             name = self.get_unique_name(name, self.decoded_input)
             self.decoded_input[name] = filter.Filter(
                 name=name, pstc=pstc, source=source, 
