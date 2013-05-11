@@ -149,7 +149,9 @@ class LIF_Concat(Optimizer):
 
 class MapGemv_Concat(Optimizer):
     """
-    Merge multiple MapGemv Ops working on subtensors of a single buffer
+    Merge multiple MapGemv Ops working on subtensors of a single buffer,
+    into a MiscGemv that makes potentially irregular accesses to that buffer
+    but can potentially do all gemvs in parallel.
     """
     def apply(self, fgraph):
         mgs = [node for node in fgraph.toposort()
@@ -257,20 +259,6 @@ class MapGemv_Concat(Optimizer):
                     repl.append((old, new))
                 fgraph.replace_all_validate(repl, reason="MapGemv_Concat")
 
-            # concatenate the arrays
-            # un-slice the 
-
-
-            #print X_src, len(by_src[X_src])
-
-        #print As
-        #print [A.owner.inputs for A in As]
-        #print [map(id, A.owner.inputs) for A in As]
-        #print A_shapes
-        #print X_shapes
-        #print [X.owner.inputs for X in Xs]
-        #print Ys
-        #print '-'
 
 optdb['canonicalize'].register('LIF_Concat', LIF_Concat(),
                                'fast_run', 'nengo')
