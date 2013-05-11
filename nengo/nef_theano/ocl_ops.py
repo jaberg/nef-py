@@ -21,45 +21,68 @@ from ocl.elemwise import plan_elemwise
 import lif
 import probe
 
-@alloc(simulator.MapGemv)
-def ocl_map_gemv_a(queue, ifs, node):
-    # TODO: work in-place on Y_in if node.destroy_map is set
-    Y = ifs_arrays(ifs, node.inputs)[-1]
-    if Y is UnAllocatedOutput:
-        Y = ifs_consts(ifs, node.inputs)[-1]
-    ifs_set_arrays(ifs, node.outputs, [empty(queue, Y.shape, Y.dtype)])
+@alloc(theano.tensor.basic.Alloc)
+def alloc_a(queue, ifs, node):
+    # -- set up a view of X
+    # XXX make sure that dimshuffle is inplace
+    in_vars = ifs_arrays(ifs, node.inputs)
+    in_consts = ifs_consts(ifs, node.inputs)
+    shape = in_consts[1:]
+    if in_vars[0] is UnAllocatedOutput:
+        val = in_consts[0]
+        Y = np.empty(shape, val.dtype)
+        Y[...] = val
+        ifs_set_consts(ifs, node.outputs, [Y])
+    else:
+        val = in_vars[0]
+        Y = empty(queue, shape, val.dtype)
+        ifs_set_arrays(ifs, node.outputs, [Y])
 
 
-@perform(simulator.MapGemv)
-def ocl_map_gemv_p(queue, ifs, node):
-    alpha, A, X, beta, Y_in = ifs_arrays(ifs, node.inputs)
-    Y_out, = ifs_arrays(ifs, node.outputs)
+@perform(theano.tensor.basic.Alloc)
+def alloc_p(queue, ifs, node):
+    in_vars = ifs_arrays(ifs, node.inputs)
+    in_consts = ifs_consts(ifs, node.inputs)
+    Y, = ifs_arrays(ifs, node.outputs)
+    if in_vars[0] is UnAllocatedOutput:
+        return
+        Ytype = Y.ocldtype
+        Ys0, Ys1, Ys2 = Y.itemstrides + (1,) * (3 - Y.ndim)
+        Xval = in_consts[0]
+        _fn = cl.Program(queue.context, """
+            __kernel void foo(
+                __global %(Ytype)s *Y)
+            {
+                int gid0 = get_global_id(0);
+                int gid1 = get_global_id(1);
+                int gid2 = get_global_id(2);
+                Y[gid0 * Ys0 + gid1 * Ys1 + gid2 * Ys2] = %(Xval)s;
+            }
+            """ % locals()).build().foo
+        _fn_args = (queue, (Y.size,), None, Y.data)
+        return [Plan(locals())]
+    else:
+        raise NotImplementedError()
 
-    # XXX: following depends on constants alpha, beta
-    falpha = float(node.inputs[0].data)
-    fbeta = float(node.inputs[3].data)
 
-    B, M, N = A.shape
-    Bx, Nx = X.shape
-    By, My = Y_out.shape
-    assert Bx == By == B
-    assert My == M
-    assert Nx == N
+@alloc(theano.compile.ops.DeepCopyOp)
+def deep_copy_a(queue, ifs, node):
+    X, = ifs_arrays(ifs, node.inputs)
+    Xc, = ifs_consts(ifs, node.inputs)
+    if Xc is UnAllocatedOutput:
+        Y = X.empty_like()
+        ifs_set_arrays(ifs, node.outputs, [Y])
+    else:
+        ifs_set_consts(ifs, node.inputs, [Xc])
 
-    #A_offsets = to_device(queue, np.arange(B) * M * N )
-    #X_offsets = to_device(queue, np.arange(B) * N )
-    #Y_offsets = to_device(queue, np.arange(B) * M)
 
-    if Y_in is UnAllocatedOutput:
-        Y_in = None
-        Y_in_val = ifs.meta[node.inputs[-1]].const_val
-        if np.all(Y_in_val == 0):
-            fbeta = 0
-        elif fbeta != 0:
-            Y_in = to_device(queue, np.asarray(Y_in_val * fbeta))
-            fbeta = 1
-
-    return [plan_map_gemv(queue, falpha, A, X, fbeta, Y_out, Y_in)]
+@perform(theano.compile.ops.DeepCopyOp)
+def deep_copy_p(queue, ifs, node):
+    X, = ifs_arrays(ifs, node.inputs)
+    Xc, = ifs_consts(ifs, node.inputs)
+    if Xc is UnAllocatedOutput:
+        Y, = ifs_arrays(ifs, node.outputs)
+        raise NotImplementedError()
 
 
 @alloc(theano.tensor.elemwise.DimShuffle)
@@ -93,20 +116,93 @@ def dimshuffle_a(queue, ifs, node):
 
 
 @perform(theano.tensor.elemwise.DimShuffle)
-def dimshuffle_p(queue, sim, node):
+def dimshuffle_p(queue, ifs, node):
     return []
 
 
-@alloc(theano.tensor.opt.Shape_i)
-def shape_i_a(queue, ifs, node):
-    X, = ifs_arrays(ifs, node.inputs)
-    ifs_set_consts(ifs, node.outputs, [X.shape[node.op.i]])
+@alloc(theano.tensor.basic.IncSubtensor)
+def inc_subtensor_a(queue, ifs, node):
+    # -- set up a view of X
+    # XXX make sure that dimshuffle is inplace
+    in_vars = ifs_arrays(ifs, node.inputs)
+    in_consts = ifs_consts(ifs, node.inputs)
+    if len(in_vars) > 2:
+        raise NotImplementedError()
+    if in_vars[0] is UnAllocatedOutput:
+        if in_vars[1] is UnAllocatedOutput:
+            # -- two constants -> constant output
+            Y = in_consts[0].copy()
+            Y.__setitem__(node.op.idx_list, in_consts[1])
+            ifs_set_consts(ifs, node.outputs, [Y])
+        else:
+            Y = to_device(queue, in_consts[0])
+            # -- works because len(in_vars) <= 2 guarantees const idx
+            Xslice = in_consts[0].__getitem__(*node.op.idx_list)
+            Xorig = to_device(queue, Xslice)
+            ifs.meta[node.outputs[0]].Xorig = Xorig
+            ifs_set_arrays(ifs, node.outputs, [Y])
+    else:
+        Y = in_vars[0].empty_like()
+        ifs_set_arrays(ifs, node.outputs, [Y])
 
 
-@perform(theano.tensor.opt.Shape_i)
-def shape_i_p(queue, sim, node):
-    return []
+@perform(theano.tensor.basic.IncSubtensor)
+def inc_subtensor_p(queue, ifs, node):
+    raise NotImplementedError()
 
+
+@alloc(simulator.MapGemv)
+def map_gemv_a(queue, ifs, node):
+    Y = ifs_arrays(ifs, node.inputs)[-1]
+    if Y is UnAllocatedOutput:
+        Y = ifs_consts(ifs, node.inputs)[-1]
+        ifs_set_arrays(ifs, node.outputs, [empty(queue, Y.shape, Y.dtype)])
+    else:
+        if node.destroy_map:
+            ifs_set_arrays(ifs, node.outputs, [Y])
+        else:
+            ifs_set_arrays(ifs, node.outputs, [empty(queue, Y.shape, Y.dtype)])
+
+
+@perform(simulator.MapGemv)
+def map_gemv_p(queue, ifs, node):
+    alpha, A, X, beta, Y_in = ifs_arrays(ifs, node.inputs)
+    Y_out, = ifs_arrays(ifs, node.outputs)
+
+    # XXX: following depends on constants alpha, beta
+    falpha = float(node.inputs[0].data)
+    fbeta = float(node.inputs[3].data)
+
+    B, M, N = A.shape
+    Bx, Nx = X.shape
+    By, My = Y_out.shape
+    assert Bx == By == B
+    assert My == M
+    assert Nx == N
+
+    #A_offsets = to_device(queue, np.arange(B) * M * N )
+    #X_offsets = to_device(queue, np.arange(B) * N )
+    #Y_offsets = to_device(queue, np.arange(B) * M)
+
+    if Y_in is UnAllocatedOutput:
+        Y_in = None
+        Y_in_val = ifs.meta[node.inputs[-1]].const_val
+        if np.all(Y_in_val == 0):
+            fbeta = 0
+        elif fbeta != 0:
+            Y_in = to_device(queue, np.asarray(Y_in_val * fbeta))
+            fbeta = 1
+
+    return [plan_map_gemv(queue, falpha, A, X, fbeta, Y_out, Y_in)]
+
+
+@alloc(simulator.MiscGemv)
+def misc_gemv_a(queue, ifs, node):
+    return map_gemv_a(queue, ifs, node)
+
+@perform(simulator.MiscGemv)
+def misc_gemv_p(queue, ifs, node):
+    raise NotImplementedError()
 
 @alloc(theano.tensor.opt.MakeVector)
 def make_vector_a(queue, ifs, node):
@@ -126,8 +222,10 @@ def make_vector_p(queue, sim, node):
 def reshape_a(queue, ifs, node):
     X, shp = node.inputs
     Xval = ifs.meta[X].ocl0
-    # -- N.B. we only support fixed shapes currently
     shape_val = ifs.meta[shp].const_val
+    if shape_val is UnAllocatedOutput:
+        theano.printing.debugprint(shp)
+        raise NotImplementedError('need constant shape', shp)
     try:
         shape_val = [int(shape_val)]
     except:
@@ -150,6 +248,40 @@ def reshape_a(queue, ifs, node):
 @perform(theano.tensor.basic.Reshape)
 def reshape_p(queue, sim, node):
     return []
+
+
+@alloc(theano.tensor.opt.Shape_i)
+def shape_i_a(queue, ifs, node):
+    X, = ifs_arrays(ifs, node.inputs)
+    ifs_set_consts(ifs, node.outputs, [X.shape[node.op.i]])
+
+
+@perform(theano.tensor.opt.Shape_i)
+def shape_i_p(queue, sim, node):
+    return []
+
+
+@alloc(theano.tensor.basic.Subtensor)
+def subtensor_a(queue, ifs, node):
+    # -- set up a view of X
+    # XXX make sure that dimshuffle is inplace
+    in_vars = ifs_arrays(ifs, node.inputs)
+    in_consts = ifs_consts(ifs, node.inputs)
+    if len(in_vars) == 1:
+        X, = in_vars
+        if 0 in node.op.view_map:
+            Y = X.__getitem__(node.op.idx_list)
+            ifs_set_arrays(ifs, node.outputs, [Y])
+        else:
+            raise NotImplementedError(node.op.idx_list)
+    else:
+        raise NotImplementedError(node.op.idx_list)
+
+
+@perform(theano.tensor.basic.Subtensor)
+def subtensor_p(queue, sim, node):
+    raise NotImplementedError()
+
 
 
 def flatten_c_contig(Xval):
@@ -401,7 +533,7 @@ def elemwise_a(queue, ifs, node):
     ocl_outputs = []
     for outnum, vv in enumerate(node.outputs):
         if outnum in node.op.destroy_map:
-            destroyed_in, = node.op_destroy_map[outnum]
+            destroyed_in, = node.op.destroy_map[outnum]
             ocl_outputs.append(ocl_inputs[destroyed_in])
         else:
             shape = np.asarray([1] * vv.ndim)

@@ -52,9 +52,13 @@ map_gemv = MapGemv(False)
 
 simulation_time = theano.tensor.fscalar(name='simulation_time')
 
+
 class MiscGemv(theano.Op):
-    def __init__(self ):
-        self.destroy_map = {}
+    def __init__(self, destructive):
+        if destructive:
+            self.destroy_map = {0: [4]}
+        else:
+            self.destroy_map = {}
 
     def __hash__(self):
         return hash((type(self), len(self.destroy_map)))
@@ -81,6 +85,14 @@ class MiscGemv(theano.Op):
         for i, xi in enumerate(Xi):
             J[i] += alpha * np.dot(X[xi], A[i].T)
         outstor[0][0] = J
+
+@local_optimizer([])
+def local_misc_gemv_destructive(node):
+    if isinstance(node.op, MiscGemv):
+        if not node.op.destroy_map:
+            op = MiscGemv(True)
+            return [op(*node.inputs)]
+blas_opt_inplace.local_optimizers.append(local_misc_gemv_destructive)
 
 
 class Simulator(object):

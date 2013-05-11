@@ -87,6 +87,7 @@ def shape_ir(self, i, r):
     else:
         return theano.tensor.opt.Shape_i(i).make_node(r).outputs[0]
 
+# -- patch this method into the ShapeFeature class
 theano.tensor.opt.ShapeFeature.shape_ir = shape_ir
 
 
@@ -242,7 +243,7 @@ class MapGemv_Concat(Optimizer):
                 new_Xi = theano.tensor.as_tensor_variable(new_Xi_list)
                 new_Ys = theano.tensor.concatenate(new_Ys_list)
 
-                new_out = MiscGemv()(alpha, new_As, new_Xs, new_Xi,
+                new_out = MiscGemv(False)(alpha, new_As, new_Xs, new_Xi,
                                      beta, new_Ys)
 
                 repl = []

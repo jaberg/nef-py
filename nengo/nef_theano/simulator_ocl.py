@@ -8,7 +8,7 @@ TODO
 * use int8 spikes
 * use float16 for many things,
 """
-
+import copy
 
 from _collections import OrderedDict
 import theano
@@ -17,6 +17,7 @@ import pyopencl as cl
 import simulator
 
 from ocl.array import to_device
+import theano.tensor.inplace
 
 ocl_alloc = {}
 ocl_post_alloc_transforms = []
@@ -41,7 +42,6 @@ def alloc(op_cls):
 
 class UnAllocatedOutput(object):
     """Singleton to stand for an un-allocated output """
-
 
 
 class IFS(object):
@@ -94,6 +94,7 @@ class IFS(object):
             seen.add(vv)
         return rval
 
+
 def ifs_unalloc(ifs):
     for vv in ifs.variables:
         ifs.meta[vv].ocl0 = UnAllocatedOutput
@@ -131,8 +132,9 @@ def ifs_alloc(ifs, queue):
     #    by destructive copy operations (tensor.second) so
     #    the outputs naturally go into the inputs for the next
     #    round of computation.
+    for ivar, ovar in ifs.updates:
+        assert ifs.meta[ivar].ocl0 is ifs.meta[ovar].ocl0
     queue.finish()
-
 
 
 def ifs_arrays(ifs, varlist):
@@ -142,15 +144,37 @@ def ifs_arrays(ifs, varlist):
 def ifs_consts(ifs, varlist):
     return [ifs.meta[vv].const_val for vv in varlist]
 
+
 def ifs_set_arrays(ifs, varlist, vallist):
     assert len(varlist) == len(vallist)
     for vv, vl in zip(varlist, vallist):
         ifs.meta[vv].ocl0 = vl
 
+
 def ifs_set_consts(ifs, varlist, vallist):
     assert len(varlist) == len(vallist)
     for vv, vl in zip(varlist, vallist):
         ifs.meta[vv].const_val = vl
+
+
+class OverwriteUpdateVars(theano.gof.Optimizer):
+    """
+    Merge multiple populations of LIF neurons
+    """
+    def apply(self, fgraph):
+        #for ovar in fgraph.outputs:
+            #print getattr(ovar.tag, 'update_opos', []), ovar.type
+        for ipos, opos in fgraph.updates_by_idx.items():
+            ivar = fgraph.inputs[ipos]
+            ovar = fgraph.outputs[opos]
+            assert ivar.type == ovar.type
+            new_out = theano.tensor.inplace.second_inplace(ivar, ovar)
+            assert new_out.type == ivar.type
+            fgraph.replace_all_validate([(ovar, new_out)],
+                reason='OverwriteUpdateVars')
+
+theano.compile.optdb.register('OverwriteUpdateVars', OverwriteUpdateVars(),
+        49.51, 'nengo_ocl')
 
 def ifs_from_network(network):
     # dictionary for all variables
@@ -176,10 +200,15 @@ def ifs_from_network(network):
     # -- use py linker to avoid wasting time compiling C code
     # -- don't insert device specializations
     # -- don't insert destructive operations
-    OPT = theano.gof.Query(include=['fast_run'], exclude=[])
-    OPT.position_cutoff = 20.0
+    OPT = theano.gof.Query(include=['fast_run', 'nengo_ocl'])
+    #OPT.position_cutoff = 20.0
     updates_items = updates.items()
-    fn = theano.function([simulation_time], [],
+    for ii, (ivar, ovar) in enumerate(updates_items):
+        ivar.tag.update_ipos = ii
+        if not hasattr(ovar.tag, 'update_opos'):
+            ovar.tag.update_opos = []
+        ovar.tag.update_opos.append(ii)
+    fn = theano.function([simulator.simulation_time], [],
         updates=updates_items, 
         mode=theano.Mode(
             optimizer=OPT,
@@ -211,9 +240,7 @@ class SimulatorOCL(object):
         else:
             self.queue = cl.CommandQueue(context)
 
-        self.step = theano_fn_from_network(network)
-        ifs = simulator.IFS(self.step)
-        self.ifs = ifs
+        self.ifs = ifs_from_network(network)
 
         # -- allocate two plans and vars for double-buffered updates
         self.n_steps = -1  # -- how many steps of dt in total have we done?
@@ -224,9 +251,9 @@ class SimulatorOCL(object):
         self._simtime = cl.array.zeros(self.queue, (), dtype='float32')
 
         ifs_unalloc(self.ifs)
-        for vv in ifs.variables:
+        for vv in self.ifs.variables:
             if vv.name == 'simulation_time':
-                ifs.meta[vv].ocl0 = self._simtime
+                self.ifs.meta[vv].ocl0 = self._simtime
         ifs_alloc(self.ifs, self.queue)
 
         # -- optimize the ifs graph
@@ -236,6 +263,8 @@ class SimulatorOCL(object):
         # -- build plans for evaluating ocl_vals[0]
         for node in self.ifs.nodes:
             plans = ocl_perform[type(node.op)](self.queue, self.ifs, node)
+            if plans is None:
+                plans = []
             for plan in plans:
                 plan.node = node
             self.plans.extend(plans)

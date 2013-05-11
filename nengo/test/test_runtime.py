@@ -6,10 +6,8 @@ import time
 from nengo import nef_theano as nef
 from nengo.nef_theano.simulator import Simulator
 
-#try:
+# -- XXX rename to an optimization file
 from nengo.nef_theano.simulator_concat import SimulatorConcat
-#except ImportError:
-#    pass
 
 try:
     from nengo.nef_theano.simulator_ocl import SimulatorOCL
@@ -38,25 +36,25 @@ net.connect('D', 'B', func=pow) # throw in some recurrency whynot
 
 approx_time = 1.0 # second
 
-if 1:
+if 0:
     start_time = time.time()
     net.run(0.001) # build the thing
     print "starting simulation (net.run)"
     net.run(approx_time)
     print "runtime: ", time.time() - start_time, "seconds"
 
-if 1:
+if 0:
     sim = Simulator(net)
     start_time = time.time()
     print "starting simulation (Simulator)"
     sim.run(approx_time)
     print "runtime: ", time.time() - start_time, "seconds"
 
-if 0:
-    sim = SimulatorConcat(net)
+if 1 and 'SimulatorOCL' in globals():
+    sim3 = SimulatorOCL(net, profiling=False)
     start_time = time.time()
-    print "starting simulation (Simulator)"
-    sim.run(approx_time)
+    print "starting simulation (OCL)"
+    sim3.run(approx_time)
     print "runtime: ", time.time() - start_time, "seconds"
 
 if 0 and 'SimulatorOCL' in globals():
@@ -74,13 +72,6 @@ if 0 and 'SimulatorOCL' in globals():
         t_total += t * 1e-9
     print 'total time in OCL:', t_total
 
-
-if 0 and 'SimulatorOCL' in globals():
-    sim3 = SimulatorOCL(net, profiling=False)
-    start_time = time.time()
-    print "starting simulation (OCL)"
-    sim3.run(approx_time)
-    print "runtime: ", time.time() - start_time, "seconds"
 
 if 0 and 'SimulatorOCL' in globals():
     sim4 = SimulatorOCL(net, profiling=False)
