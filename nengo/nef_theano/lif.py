@@ -6,6 +6,9 @@ from theano import tensor as TT
 
 import neuron
 
+# --not an elemwise because
+#   (a) we want to concat them at canonicalize (see simulator_concat.py)
+#   (b) elemwise only have one output for now I think
 class LIF_Op(theano.Op):
     def __init__(self, tau_ref, tau_rc, upsample=1):
         self.tau_ref = tau_ref
@@ -27,6 +30,9 @@ class LIF_Op(theano.Op):
             self.tau_ref,
             self.tau_rc,
             self.upsample)
+
+    def infer_shape(self, node, ishapes):
+        return [ishapes[0], ishapes[0], ishapes[0]]
 
     def make_node(self,
             #alpha, j_bias,
@@ -108,8 +114,10 @@ class LIFNeuron(neuron.Neuron):
         self.tau_ref  = tau_ref
         self.voltage = theano.shared(
             np.zeros(size).astype('float32'), name='lif.voltage')
+        self.voltage.tag.const_shape = size
         self.refractory_time = theano.shared(
             np.zeros(size).astype('float32'), name='lif.refractory_time')
+        self.refractory_time.tag.const_shape = size
 
     #TODO: make this generic so it can be applied to any neuron model
     # (by running the neurons and finding their response function),

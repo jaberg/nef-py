@@ -5,6 +5,12 @@ import time
 
 from nengo import nef_theano as nef
 from nengo.nef_theano.simulator import Simulator
+
+try:
+    from nengo.nef_theano.simulator_concat import SimulatorConcat
+except ImportError:
+    pass
+
 try:
     from nengo.nef_theano.simulator_ocl import SimulatorOCL
 except ImportError:
@@ -38,14 +44,21 @@ if 1:
     net.run(approx_time)
     print "runtime: ", time.time() - start_time, "seconds"
 
-if 1:
+if 0:
     sim = Simulator(net)
     start_time = time.time()
     print "starting simulation (Simulator)"
     sim.run(approx_time)
     print "runtime: ", time.time() - start_time, "seconds"
 
-if 1 and 'SimulatorOCL' in globals():
+if 0:
+    sim = SimulatorConcat(net)
+    start_time = time.time()
+    print "starting simulation (Simulator)"
+    sim.run(approx_time)
+    print "runtime: ", time.time() - start_time, "seconds"
+
+if 0 and 'SimulatorOCL' in globals():
     sim2 = SimulatorOCL(net, profiling=True)
     start_time = time.time()
     print "starting simulation (OCL with profiling)"
@@ -61,14 +74,14 @@ if 1 and 'SimulatorOCL' in globals():
     print 'total time in OCL:', t_total
 
 
-if 1 and 'SimulatorOCL' in globals():
+if 0 and 'SimulatorOCL' in globals():
     sim3 = SimulatorOCL(net, profiling=False)
     start_time = time.time()
     print "starting simulation (OCL)"
     sim3.run(approx_time)
     print "runtime: ", time.time() - start_time, "seconds"
 
-if 1 and 'SimulatorOCL' in globals():
+if 0 and 'SimulatorOCL' in globals():
     sim4 = SimulatorOCL(net, profiling=False)
     start_time = time.time()
     print "starting simulation with error detection (OCL)"

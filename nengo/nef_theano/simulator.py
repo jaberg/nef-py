@@ -1,76 +1,56 @@
-import copy
+"""
+Simple theano-based simulator
+"""
 from _collections import OrderedDict
 import theano
 import numpy as np
 
+from theano.tensor.blas import local_optimizer, blas_opt_inplace
+
 class MapGemv(theano.Op):
-    def __init__(self):
-        pass
+    def __init__(self, destructive):
+        if destructive:
+            self.destroy_map = {0: [4]}
+        else:
+            self.destroy_map = {}
+
+    def __hash__(self):
+        return hash((type(self), len(self.destroy_map)))
+
+    def __eq__(self, other):
+        return (type(self) == type(other)
+                and self.destroy_map == other.destroy_map)
 
     def make_node(self, alpha, A, X, beta, J):
         inputs = map(theano.tensor.as_tensor_variable,
             [alpha, A, X, beta, J])
         return theano.Apply(self, inputs, [inputs[-1].type()])
 
+    def infer_shape(self, node, ishapes):
+        return [ishapes[-1]]
+
     def perform(self, node, inputs, outstor):
         alpha, A, X, beta, J = inputs
 
-        J = J.copy() # TODO: inplace
+        if not self.destroy_map:
+            J = J.copy()
 
         J *= beta
         for i in range(len(J)):
             J[i] += alpha * np.dot(X[i], A[i].T)
         outstor[0][0] = J
 
-map_gemv = MapGemv()
+@local_optimizer([])
+def local_map_gemv_destructive(node):
+    if isinstance(node.op, MapGemv):
+        if not node.op.destroy_map:
+            op = MapGemv(True)
+            return [op(*node.inputs)]
+blas_opt_inplace.local_optimizers.append(local_map_gemv_destructive)
 
-
-class IFS(object):
-    """
-    Iteratable Function System
-
-    Like "FunctionGraph" in Theano, except that it is is designed around
-    updates, so the number of inputs and outputs can actually change.
-    """
-    def __init__(self, fn):
-        self.updates = fn.fn.updated_vars.items()
-        self._nodes = fn.fn.nodes
-        self.dag = None # networkx ?
-        self.meta = {}
-        for node in self._nodes:
-            for vv in node.inputs + node.outputs:
-                self.meta.setdefault(vv, copy.copy(vv.tag))
-
-    def add_update(self, in_expr, out_expr):
-        if in_expr.owner:
-            raise ValueError(in_expr)
-        self.updates.append((in_expr, out_expr))
-
-    def replace(self, old_v, new_v):
-        raise NotImplementedError()
-
-    @property
-    def nodes(self):
-        return self._nodes
-
-    @property
-    def variables(self):
-        tmp = []
-        for node in self._nodes:
-            tmp.extend(node.inputs)
-            tmp.extend(node.outputs)
-        seen = set()
-        rval = []
-        for vv in tmp:
-            if vv not in seen:
-                rval.append(vv)
-            seen.add(vv)
-        return rval
-
+map_gemv = MapGemv(False)
 
 simulation_time = theano.tensor.fscalar(name='simulation_time')
-
-scribe_buf_last_filled = theano.tensor.iscalar(name='scribe_buf_last_filled')
 
 
 class Simulator(object):
